@@ -951,6 +951,10 @@ app default {
 			type = protected;
 			model = "Adèle Admin-2";
 		}
+
+		# If using IsoApplet, uncomment below as it supports InitToken
+		# pkcs11_enable_InitToken = yes;
+		# also do not forget to uncomment user_pin_unblock_style = set_pin_in_unlogged_session;
 	}
 }
 

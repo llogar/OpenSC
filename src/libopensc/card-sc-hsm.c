@@ -1598,6 +1598,8 @@ static int sc_hsm_card_ctl(sc_card_t *card, unsigned long cmd, void *ptr)
 		return sc_hsm_wrap_key(card, (sc_cardctl_sc_hsm_wrapped_key_t *)ptr);
 	case SC_CARDCTL_SC_HSM_UNWRAP_KEY:
 		return sc_hsm_unwrap_key(card, (sc_cardctl_sc_hsm_wrapped_key_t *)ptr);
+	case SC_CARDCTL_ISOAPPLET_IMPORT_KEY:
+		return sc_get_isoApplet_driver()->ops->card_ctl(card, cmd, ptr);
 	}
 	return SC_ERROR_NOT_SUPPORTED;
 }

@@ -533,6 +533,7 @@ isoApplet_generate_key_ec(const sc_pkcs15_prkey_info_t *key_info, sc_card_t *car
 		goto out;
 	}
 	pubkey->alg_id->algorithm = SC_ALGORITHM_EC;
+	sc_init_oid(&pubkey->alg_id->oid);
 	pubkey->alg_id->params = alg_id_params;
 
 	/* Extract ecpointQ */
@@ -636,6 +637,11 @@ isoApplet_generate_key(sc_profile_t *profile, sc_pkcs15_card_t *p15card,
 		r = SC_ERROR_NOT_SUPPORTED;
 		sc_log(card->ctx, "%s: Key generation failed: Unknown/unsupported key type.", strerror(r));
 	}
+
+	key_info->access_flags = SC_PKCS15_PRKEY_ACCESS_NEVEREXTRACTABLE
+	        | SC_PKCS15_PRKEY_ACCESS_ALWAYSSENSITIVE
+	        | SC_PKCS15_PRKEY_ACCESS_SENSITIVE
+	        | SC_PKCS15_PRKEY_ACCESS_LOCAL;
 
 	LOG_FUNC_RETURN(card->ctx, r);
 }
@@ -787,6 +793,9 @@ isoApplet_store_key(sc_profile_t *profile, sc_pkcs15_card_t *p15card, sc_pkcs15_
 		sc_log(card->ctx, "%s: Error in card_ctl", sc_strerror(r));
 		LOG_FUNC_RETURN(card->ctx, r);
 	}
+
+	key_info->access_flags = SC_PKCS15_PRKEY_ACCESS_NEVEREXTRACTABLE
+	        | SC_PKCS15_PRKEY_ACCESS_SENSITIVE;
 
 	LOG_FUNC_RETURN(card->ctx, SC_SUCCESS);
 }

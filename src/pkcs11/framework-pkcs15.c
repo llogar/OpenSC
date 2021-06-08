@@ -1601,6 +1601,9 @@ pkcs15_login(struct sc_pkcs11_slot *slot, CK_USER_TYPE userType,
 	if (!fw_data)
 		return sc_to_cryptoki_error(SC_ERROR_INTERNAL, "C_Login");
 	p15card = fw_data->p15_card;
+	if (p15card == NULL) {
+		return CKR_TOKEN_NOT_RECOGNIZED;
+	}
 
 	conf_block = sc_get_conf_block(p11card->card->ctx, "card_driver", p15card->card->driver->short_name, 1);
 	if (conf_block) {

@@ -39,6 +39,8 @@
 
 static const u8 isoApplet_aid[] = {0xf2,0x76,0xa2,0x88,0xbc,0xfb,0xa6,0x9d,0x34,0xf3,0x10,0x01};
 
+static char *isoApplet_model = "isoApplet";
+
 /* Operations supported by the applet. */
 static struct sc_card_operations isoApplet_ops;
 
@@ -1304,6 +1306,14 @@ isoApplet_card_ctl(sc_card_t *card, unsigned long cmd, void *ptr)
 	case SC_CARDCTL_GET_SERIALNR:
 		r = isoApplet_ctl_get_serialnr(card,
 		                             (sc_serial_number_t *) ptr);
+		break;
+	case SC_CARDCTL_GET_MODEL:
+		if (!ptr)
+			r = SC_ERROR_INVALID_ARGUMENTS;
+		else {
+			*(char**)ptr = isoApplet_model;
+			r = SC_SUCCESS;
+		}
 		break;
 	default:
 		r = SC_ERROR_NOT_SUPPORTED;

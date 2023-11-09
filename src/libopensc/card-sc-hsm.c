@@ -52,6 +52,8 @@ static const struct sc_card_operations *iso_ops = NULL;
 /* Our operations */
 static struct sc_card_operations sc_hsm_ops;
 
+static char *sc_hsm_model = "SmartCard-HSM";
+
 /* Our driver description */
 static struct sc_card_driver sc_hsm_drv = {
 	"SmartCard-HSM",
@@ -1765,6 +1767,11 @@ static int sc_hsm_card_ctl(sc_card_t *card, unsigned long cmd, void *ptr)
 		return sc_hsm_register_public_key(card, ptr);
 	case SC_CARDCTL_SC_HSM_PUBLIC_KEY_AUTH_STATUS:
 		return sc_hsm_public_key_auth_status(card, ptr);
+	case SC_CARDCTL_GET_MODEL:
+		if (!ptr)
+			return SC_ERROR_INVALID_ARGUMENTS;
+		*(char**)ptr = sc_hsm_model;
+		return SC_SUCCESS;
 	}
 	return SC_ERROR_NOT_SUPPORTED;
 }

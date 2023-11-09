@@ -22,6 +22,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 #ifdef HAVE_SYS_TIME_H
 #include <sys/time.h>
 #endif
@@ -36,6 +37,7 @@
 
 #include "sc-pkcs11.h"
 #include "ui/notify.h"
+#include "common/compat_strndup.h"
 
 #ifdef ENABLE_OPENSSL
 #include <openssl/crypto.h>
@@ -728,12 +730,19 @@ CK_RV C_InitToken(CK_SLOT_ID slotID,
 	struct sc_pkcs11_session *session;
 	struct sc_pkcs11_slot *slot;
 	CK_RV rv;
-	unsigned int i;
+	unsigned int i, label_len;
+
+	/* pLabel is not required to be NUL-terminated */
+	pLabel = (CK_CHAR_PTR)strndup((char*)pLabel, 32);
+	if (!pLabel)
+		return CKR_HOST_MEMORY;
 
 	sc_log(context, "C_InitToken(pLabel='%s') called", pLabel);
 	rv = sc_pkcs11_lock();
-	if (rv != CKR_OK)
+	if (rv != CKR_OK) {
+		free(pLabel);
 		return rv;
+	}
 
 	rv = slot_get_token(slotID, &slot);
 	if (rv != CKR_OK)   {
@@ -757,6 +766,11 @@ CK_RV C_InitToken(CK_SLOT_ID slotID,
 		}
 	}
 
+	/* Trim trailing spaces */
+	label_len = strlen((char*)pLabel);
+	while (label_len && isspace(pLabel[label_len - 1]))
+		pLabel[--label_len] = '\0';
+
 	rv = slot->p11card->framework->init_token(slot, slot->fw_data, pPin, ulPinLen, pLabel);
 	if (rv == CKR_OK) {
 		/* Now we should re-bind all tokens so they get the
@@ -766,6 +780,7 @@ CK_RV C_InitToken(CK_SLOT_ID slotID,
 out:
 	sc_pkcs11_unlock();
 	sc_log(context, "C_InitToken(pLabel='%s') returns 0x%lX", pLabel, rv);
+	free(pLabel);
 	return rv;
 }
 

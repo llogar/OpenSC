@@ -1171,6 +1171,7 @@ pkcs15_init_slot(struct sc_pkcs15_card *p15card, struct sc_pkcs11_slot *slot,
 		}
 		else   {
 			size_t pin_len = 0;
+			int tokeninfo_flags = SC_CARDCTRL_TOKENINFO_FLAGS_SET_LOGIN_REQUIRED;
 			if (auth->label[0] && strncmp(auth->label, "PIN", 4) != 0)
 				pin_len = strlen(auth->label);
 			if (pin_len && get_num_slots(p15card->card) > 1) {
@@ -1211,7 +1212,20 @@ pkcs15_init_slot(struct sc_pkcs15_card *p15card, struct sc_pkcs11_slot *slot,
 					slot->token_info.label[i] = '.';
 				}
 			}
-			slot->token_info.flags |= CKF_LOGIN_REQUIRED;
+			/* Let the card driver override SC_PKCS15_TOKEN_LOGIN_REQUIRED flag */
+			sc_card_ctl(p15card->card, SC_CARDCTL_TOKENINFO_FLAGS, &tokeninfo_flags);
+			switch (tokeninfo_flags) {
+			case SC_CARDCTRL_TOKENINFO_FLAGS_HONOR_LOGIN_REQUIRED:
+				if (p15card->tokeninfo->flags & SC_PKCS15_TOKEN_LOGIN_REQUIRED)
+					slot->token_info.flags |= CKF_LOGIN_REQUIRED;
+				break;
+			case SC_CARDCTRL_TOKENINFO_FLAGS_SET_LOGIN_REQUIRED:
+				slot->token_info.flags |= CKF_LOGIN_REQUIRED;
+				break;
+			case SC_CARDCTRL_TOKENINFO_FLAGS_UNSET_LOGIN_REQUIRED:
+				slot->token_info.flags &= ~CKF_LOGIN_REQUIRED;
+				break;
+			}
 		}
 	}
 

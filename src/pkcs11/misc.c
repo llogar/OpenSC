@@ -473,10 +473,22 @@ static int is_nss_browser(sc_context_t * ctx)
 	return 0;
 }
 
+unsigned int parse_unblock_style(scconf_block *conf_block, unsigned int default_value)
+{
+	char *unblock_style = (char *)scconf_get_str(conf_block, "user_pin_unblock_style", NULL);
+
+	if (unblock_style && !strcmp(unblock_style, "set_pin_in_unlogged_session"))
+		return SC_PKCS11_PIN_UNBLOCK_UNLOGGED_SETPIN;
+	else if (unblock_style && !strcmp(unblock_style, "set_pin_in_specific_context"))
+		return SC_PKCS11_PIN_UNBLOCK_SCONTEXT_SETPIN;
+	else if (unblock_style && !strcmp(unblock_style, "init_pin_in_so_session"))
+		return SC_PKCS11_PIN_UNBLOCK_SO_LOGGED_INITPIN;
+	return default_value;
+}
+
 void load_pkcs11_parameters(struct sc_pkcs11_config *conf, sc_context_t * ctx)
 {
 	scconf_block *conf_block = NULL;
-	char *unblock_style = NULL;
 	char *create_slots_for_pins = NULL, *op, *tmp;
 
 	/* Set defaults */
@@ -509,15 +521,7 @@ void load_pkcs11_parameters(struct sc_pkcs11_config *conf, sc_context_t * ctx)
 		conf->lock_login = 1;
 	conf->lock_login = scconf_get_bool(conf_block, "lock_login", conf->lock_login);
 	conf->init_sloppy = scconf_get_bool(conf_block, "init_sloppy", conf->init_sloppy);
-
-	unblock_style = (char *)scconf_get_str(conf_block, "user_pin_unblock_style", NULL);
-	if (unblock_style && !strcmp(unblock_style, "set_pin_in_unlogged_session"))
-		conf->pin_unblock_style = SC_PKCS11_PIN_UNBLOCK_UNLOGGED_SETPIN;
-	else if (unblock_style && !strcmp(unblock_style, "set_pin_in_specific_context"))
-		conf->pin_unblock_style = SC_PKCS11_PIN_UNBLOCK_SCONTEXT_SETPIN;
-	else if (unblock_style && !strcmp(unblock_style, "init_pin_in_so_session"))
-		conf->pin_unblock_style = SC_PKCS11_PIN_UNBLOCK_SO_LOGGED_INITPIN;
-
+	conf->pin_unblock_style = parse_unblock_style(conf_block, conf->pin_unblock_style);
 	conf->create_puk_slot = scconf_get_bool(conf_block, "create_puk_slot", conf->create_puk_slot);
 
 	create_slots_for_pins = (char *)scconf_get_str(conf_block, "create_slots_for_pins", "all");

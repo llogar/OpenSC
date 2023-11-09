@@ -1747,6 +1747,8 @@ pkcs15_login(struct sc_pkcs11_slot *slot, CK_USER_TYPE userType,
 	struct sc_pkcs15_object *auth_object = NULL;
 	struct sc_pkcs15_auth_info *pin_info = NULL;
 	int rc;
+	scconf_block *conf_block = NULL;
+	unsigned int pin_unblock_style = sc_pkcs11_conf.pin_unblock_style;
 
 	if (slot->p11card == NULL)
 		return sc_to_cryptoki_error(SC_ERROR_INVALID_CARD, "C_Login");
@@ -1758,6 +1760,11 @@ pkcs15_login(struct sc_pkcs11_slot *slot, CK_USER_TYPE userType,
 	p15card = fw_data->p15_card;
 	if (!p15card)
 		return sc_to_cryptoki_error(SC_ERROR_INVALID_CARD, "C_Login");
+
+	conf_block = sc_get_conf_block(p11card->card->ctx, "card_driver", p15card->card->driver->short_name, 1);
+	if (conf_block) {
+		pin_unblock_style = parse_unblock_style(conf_block, pin_unblock_style);
+	}
 
 	sc_log(context, "pkcs15-login: userType 0x%lX, PIN length %li", userType, ulPinLen);
 	switch (userType) {
@@ -1779,7 +1786,7 @@ pkcs15_login(struct sc_pkcs11_slot *slot, CK_USER_TYPE userType,
 			if (sc_pkcs11_conf.lock_login)
 				rc = lock_card(fw_data);
 
-			if (sc_pkcs11_conf.pin_unblock_style == SC_PKCS11_PIN_UNBLOCK_SO_LOGGED_INITPIN)   {
+			if (pin_unblock_style == SC_PKCS11_PIN_UNBLOCK_SO_LOGGED_INITPIN)   {
 				if (ulPinLen && ulPinLen < sizeof(fw_data->user_puk))   {
 					memcpy(fw_data->user_puk, pPin, ulPinLen);
 					fw_data->user_puk_len = (unsigned int) ulPinLen;
@@ -1964,6 +1971,8 @@ pkcs15_change_pin(struct sc_pkcs11_slot *slot,
 	struct sc_pkcs15_object *pin_obj = NULL;
 	int login_user = slot->login_user;
 	int rc;
+	scconf_block *conf_block = NULL;
+	unsigned int pin_unblock_style = sc_pkcs11_conf.pin_unblock_style;
 
 	if (!p11card)
 		return sc_to_cryptoki_error(SC_ERROR_INVALID_CARD, "C_SetPin");
@@ -1973,6 +1982,11 @@ pkcs15_change_pin(struct sc_pkcs11_slot *slot,
 	p15card = fw_data->p15_card;
 	if (!p15card)
 		return sc_to_cryptoki_error(SC_ERROR_INVALID_CARD, "C_SetPin");
+
+	conf_block = sc_get_conf_block(p11card->card->ctx, "card_driver", p15card->card->driver->short_name, 1);
+	if (conf_block) {
+		pin_unblock_style = parse_unblock_style(conf_block, pin_unblock_style);
+	}
 
 	if (login_user == CKU_SO) {
 		rc = sc_pkcs15_find_so_pin(p15card, &pin_obj);
@@ -1993,11 +2007,11 @@ pkcs15_change_pin(struct sc_pkcs11_slot *slot,
 		return CKR_PIN_LEN_RANGE;
 	}
 
-	if (login_user < 0 && sc_pkcs11_conf.pin_unblock_style == SC_PKCS11_PIN_UNBLOCK_UNLOGGED_SETPIN) {
+	if (login_user < 0 && pin_unblock_style == SC_PKCS11_PIN_UNBLOCK_UNLOGGED_SETPIN) {
 		rc = sc_pkcs15_unblock_pin(fw_data->p15_card, pin_obj, pOldPin, ulOldLen, pNewPin, ulNewLen);
 	}
 	else if (login_user == CKU_CONTEXT_SPECIFIC)   {
-		if (sc_pkcs11_conf.pin_unblock_style != SC_PKCS11_PIN_UNBLOCK_SCONTEXT_SETPIN) {
+		if (pin_unblock_style != SC_PKCS11_PIN_UNBLOCK_SCONTEXT_SETPIN) {
 			sc_log(context, "PIN unlock is not allowed with CKU_CONTEXT_SPECIFIC login");
 			return CKR_FUNCTION_NOT_SUPPORTED;
 		}
@@ -2034,6 +2048,12 @@ pkcs15_initialize(struct sc_pkcs11_slot *slot, void *ptr,
 		return CKR_TOKEN_NOT_RECOGNIZED;
 	conf_block = sc_get_conf_block(p11card->card->ctx, "framework", "pkcs15", 1);
 	enable_InitToken = scconf_get_bool(conf_block, "pkcs11_enable_InitToken", 0);
+
+	conf_block = sc_get_conf_block(p11card->card->ctx, "card_driver", p11card->card->driver->short_name, 1);
+	if (conf_block) {
+		/* Override global enable_InitToken value */
+		enable_InitToken = scconf_get_bool(conf_block, "pkcs11_enable_InitToken", enable_InitToken);
+	}
 
 	memset(&args, 0, sizeof(args));
 	args.so_pin = pPin;
@@ -2158,6 +2178,8 @@ pkcs15_init_pin(struct sc_pkcs11_slot *slot, CK_CHAR_PTR pPin, CK_ULONG ulPinLen
 	struct sc_pkcs15_auth_info *auth_info = NULL;
 	struct sc_cardctl_pkcs11_init_pin p11args;
 	int rc;
+	scconf_block *conf_block = NULL;
+	unsigned int pin_unblock_style = sc_pkcs11_conf.pin_unblock_style;
 
 	memset(&p11args, 0, sizeof(p11args));
 	p11args.pin = pPin;
@@ -2172,15 +2194,20 @@ pkcs15_init_pin(struct sc_pkcs11_slot *slot, CK_CHAR_PTR pPin, CK_ULONG ulPinLen
 		return sc_to_cryptoki_error(rc, "C_InitPin");
 	}
 
+	conf_block = sc_get_conf_block(p11card->card->ctx, "card_driver", p11card->card->driver->short_name, 1);
+	if (conf_block) {
+		pin_unblock_style = parse_unblock_style(conf_block, pin_unblock_style);
+	}
+
 	sc_log(context, "Init PIN: pin %p:%lu; unblock style %i", pPin,
-		ulPinLen, sc_pkcs11_conf.pin_unblock_style);
+		ulPinLen, pin_unblock_style);
 
 	fw_data = (struct pkcs15_fw_data *) p11card->fws_data[slot->fw_data_idx];
 	if (!fw_data)
 		return sc_to_cryptoki_error(SC_ERROR_INTERNAL, "C_InitPin");
 
 	auth_info = slot_data_auth_info(slot->fw_data);
-	if (auth_info && sc_pkcs11_conf.pin_unblock_style == SC_PKCS11_PIN_UNBLOCK_SO_LOGGED_INITPIN)   {
+	if (auth_info && pin_unblock_style == SC_PKCS11_PIN_UNBLOCK_SO_LOGGED_INITPIN)   {
 		if (!fw_data->p15_card)
 			return sc_to_cryptoki_error(SC_ERROR_INVALID_CARD, "C_InitPin");
 		/* C_InitPIN is used to unblock User PIN or set it in the SO session .*/

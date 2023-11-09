@@ -514,6 +514,9 @@ CK_RV sc_pkcs11_verify_data(const CK_BYTE_PTR pubkey, CK_ULONG pubkey_len,
 	CK_BYTE_PTR signat, CK_ULONG signat_len);
 #endif
 
+/* Parse user_pin_unblock_style config option */
+unsigned int parse_unblock_style(scconf_block *conf_block, unsigned int default_value);
+
 /* Load configuration defaults */
 void load_pkcs11_parameters(struct sc_pkcs11_config *, struct sc_context *);
 

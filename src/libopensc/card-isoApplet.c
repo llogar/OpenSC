@@ -31,6 +31,7 @@
 
 #define ISOAPPLET_ALG_REF_ECDSA_SHA1 0x21
 #define ISOAPPLET_ALG_REF_ECDSA_PRECOMPUTED_HASH 0x22
+#define ISOAPPLET_ALG_REF_ECDH 0x23
 #define ISOAPPLET_ALG_REF_RSA_PAD_PKCS1 0x11
 #define ISOAPPLET_ALG_REF_RSA_PAD_PSS 0x12
 
@@ -262,7 +263,7 @@ isoApplet_init(sc_card_t *card)
 	if(drvdata->isoapplet_features & ISOAPPLET_API_FEATURE_SECURE_RANDOM)
 		card->caps |=  SC_CARD_CAP_RNG;
 	if(drvdata->isoapplet_version <= 0x0005
-			|| drvdata->isoapplet_features & (ISOAPPLET_API_FEATURE_ECDSA_SHA1 | ISOAPPLET_API_FEATURE_ECDSA_PRECOMPUTED_HASH))
+			|| drvdata->isoapplet_features & (ISOAPPLET_API_FEATURE_ECDSA_SHA1 | ISOAPPLET_API_FEATURE_ECDSA_PRECOMPUTED_HASH | ISOAPPLET_API_FEATURE_ECDH))
 	{
 		/* There are Java Cards that do not support ECDSA at all. The IsoApplet
 		 * started to report this with version 00.06.
@@ -282,6 +283,11 @@ isoApplet_init(sc_card_t *card)
 			{
 				flags |= SC_ALGORITHM_ECDSA_RAW;
 				flags |= SC_ALGORITHM_ECDSA_HASH_NONE;
+			}
+			if (drvdata->isoapplet_features & ISOAPPLET_API_FEATURE_ECDH)
+			{
+				flags |= SC_ALGORITHM_ECDSA_RAW;
+				flags |= SC_ALGORITHM_ECDH_CDH_RAW;
 			}
 		} else { // ISOAPPLET_VERSION_V1
 			flags |= SC_ALGORITHM_ECDSA_RAW;
@@ -1329,6 +1335,9 @@ isoApplet_set_security_env(sc_card_t *card,
 	case SC_SEC_OPERATION_DECIPHER:
 		apdu.p2 = 0xB8;
 		break;
+	case SC_SEC_OPERATION_DERIVE:
+		apdu.p2 = 0xB7;
+		break;
 	case SC_SEC_OPERATION_SIGN:
 		apdu.p2 = 0xB6;
 		break;
@@ -1359,29 +1368,46 @@ isoApplet_set_security_env(sc_card_t *card,
 			break;
 
 		case SC_ALGORITHM_EC:
-			if( env->algorithm_flags & SC_ALGORITHM_ECDSA_RAW )
+			if (env->operation == SC_SEC_OPERATION_SIGN)
 			{
-				if(env->algorithm_flags & SC_ALGORITHM_ECDSA_HASH_SHA1)
+				if (env->algorithm_flags & SC_ALGORITHM_ECDSA_HASH_NONE)
+				{
+					drvdata->sec_env_alg_ref = ISOAPPLET_ALG_REF_ECDSA_PRECOMPUTED_HASH;
+					drvdata->sec_env_ec_field_length = env->algorithm_ref;
+				}
+				else if (env->algorithm_flags & SC_ALGORITHM_ECDSA_RAW)
+				{
+					if (env->algorithm_flags & SC_ALGORITHM_ECDSA_HASH_SHA1)
+					{
+						drvdata->sec_env_alg_ref = ISOAPPLET_ALG_REF_ECDSA_SHA1;
+					}
+					else if (env->algorithm_flags == SC_ALGORITHM_ECDSA_RAW)
+					{
+						drvdata->sec_env_alg_ref = ISOAPPLET_ALG_REF_ECDSA_PRECOMPUTED_HASH;
+					}
+					else
+					{
+						LOG_TEST_RET(card->ctx, SC_ERROR_NOT_SUPPORTED, "IsoApplet only supports ECDSA with SHA1 and NONE hashes");
+					}
+					drvdata->sec_env_ec_field_length = env->algorithm_ref;
+				}
+				else if (env->algorithm_flags & SC_ALGORITHM_ECDSA_HASH_SHA1)
 				{
 					drvdata->sec_env_alg_ref = ISOAPPLET_ALG_REF_ECDSA_SHA1;
 				}
-				else if (env->algorithm_flags == SC_ALGORITHM_ECDSA_RAW)
-				{
-					drvdata->sec_env_alg_ref = ISOAPPLET_ALG_REF_ECDSA_PRECOMPUTED_HASH;
-				}
 				else
 				{
-					LOG_TEST_RET(card->ctx, SC_ERROR_NOT_SUPPORTED, "IsoApplet only supports ECDSA with SHA1 and NONE hashes");
+					LOG_TEST_RET(card->ctx, SC_ERROR_NOT_SUPPORTED, "Unsupported ECDSA parameters");
 				}
-				drvdata->sec_env_ec_field_length = env->algorithm_ref;
 			}
-			else if(env->algorithm_flags & SC_ALGORITHM_ECDSA_HASH_SHA1)
+			else if (env->operation == SC_SEC_OPERATION_DERIVE)
 			{
-				drvdata->sec_env_alg_ref = ISOAPPLET_ALG_REF_ECDSA_SHA1;
+				drvdata->sec_env_alg_ref = ISOAPPLET_ALG_REF_ECDH;
+				drvdata->sec_env_ec_field_length = env->algorithm_ref;
 			}
 			else
 			{
-				LOG_TEST_RET(card->ctx, SC_ERROR_NOT_SUPPORTED, "Unsupported algorithm.");
+				LOG_TEST_RET(card->ctx, SC_ERROR_NOT_SUPPORTED, "Unsupported ECC operation.");
 			}
 			break;
 

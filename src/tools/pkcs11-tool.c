@@ -8141,7 +8141,16 @@ static void generate_random(CK_SESSION_HANDLE session)
 	if (rv != CKR_OK)
 		util_fatal("Could not generate random bytes");
 
-	if (opt_output) {
+	if (opt_output == NULL) {
+		unsigned long n;
+		for (n = 0; n < opt_random_bytes; n++)
+			fprintf(stdout, "%02x", buf[n]);
+		fputs("\n", stdout);
+		free(buf);
+		return;
+	}
+
+	if (opt_output && (strcmp(opt_output, "-") != 0)) {
 		out = fopen(opt_output, "wb");
 		if (out==NULL)
 			util_fatal("Cannot open '%s'", opt_output);

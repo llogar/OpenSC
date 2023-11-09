@@ -1292,6 +1292,25 @@ static int isoApplet_logout(sc_card_t *card)
 	return isoApplet_select_applet(card, isoApplet_aid, sizeof(isoApplet_aid));
 }
 
+static int
+isoApplet_list_files(struct sc_card *card, u8 *buf, size_t buflen) {
+	sc_apdu_t apdu;
+	int r;
+	struct isoApplet_drv_data *drvdata = (struct isoApplet_drv_data *)card->drv_data;
+	if (drvdata->isoapplet_version < 0x0007)
+		return SC_ERROR_NOT_SUPPORTED;
+	/* ISO7816 interindustry GET_DATA apdu */
+	sc_format_apdu(card, &apdu, SC_APDU_CASE_2_SHORT, 0xCA, 0x01, 0);
+	apdu.resp = buf;
+	apdu.resplen = buflen;
+	apdu.le = buflen > 256 ? 256 : buflen;
+	r = sc_transmit_apdu(card, &apdu);
+	SC_TEST_RET(card->ctx, SC_LOG_DEBUG_NORMAL, r, "APDU transmit failed");
+	if (apdu.resplen == 0)
+		return sc_check_sw(card, apdu.sw1, apdu.sw2);
+	return apdu.resplen;
+}
+
 static struct sc_card_driver *sc_get_driver(void)
 {
 	sc_card_driver_t *iso_drv = sc_get_iso7816_driver();
@@ -1316,6 +1335,7 @@ static struct sc_card_driver *sc_get_driver(void)
 	isoApplet_ops.get_challenge = isoApplet_get_challenge;
 	isoApplet_ops.card_reader_lock_obtained = isoApplet_card_reader_lock_obtained;
 	isoApplet_ops.logout = isoApplet_logout;
+	isoApplet_ops.list_files = isoApplet_list_files;
 
 	/* unsupported functions */
 	isoApplet_ops.write_binary = NULL;

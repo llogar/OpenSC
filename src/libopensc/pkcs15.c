@@ -1187,6 +1187,11 @@ sc_pkcs15_bind_internal(struct sc_pkcs15_card *p15card, struct sc_aid *aid)
 
 	if (!p15card->tokeninfo->serial_number && 0 == card->serialnr.len) {
 		sc_card_ctl(p15card->card, SC_CARDCTL_GET_SERIALNR, &card->serialnr);
+	} else {
+		/* convert serial number to uppercase */
+		size_t ii;
+		for(ii=0;ii<strlen(p15card->tokeninfo->serial_number);ii++)
+			p15card->tokeninfo->serial_number[ii] = toupper(p15card->tokeninfo->serial_number[ii]);
 	}
 
 	if (!p15card->tokeninfo->serial_number && card->serialnr.len)   {

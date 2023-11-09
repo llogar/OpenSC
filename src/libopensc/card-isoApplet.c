@@ -168,7 +168,7 @@ isoApplet_get_info(sc_card_t * card, struct isoApplet_drv_data * drvdata) {
 	int rv;
 	sc_context_t * ctx = card->ctx;
 
-	rv = sc_get_data(card, 0x0101, rbuf, 3);
+	rv = sc_get_data(card, 0x0101, rbuf, 7);
 	if(rv == SC_ERROR_INS_NOT_SUPPORTED || rv == SC_ERROR_INCORRECT_PARAMETERS) {
 		/* INS not supported. This is an older IsoApplet that might return the
 		 * applet information upon selection. For backward compatibility, try this. */
@@ -196,14 +196,29 @@ isoApplet_get_info(sc_card_t * card, struct isoApplet_drv_data * drvdata) {
 	{
 		drvdata->isoapplet_version = rbuf[0] << 8 | rbuf[1];
 		if (rv < 6)
+		{
 			drvdata->isoapplet_features = rbuf[2];
-		else
+		}
+		else if ((rv == 7) && (rbuf[3] == 0xC7)) /* C7_LEGACY_MODE */
+		{
+			drvdata->isoapplet_features = rbuf[2];
+			card->version.hw_major = rbuf[4] >> 4;
+			card->version.hw_minor = rbuf[4] & 0x0F;
+			card->version.fw_major = rbuf[5] >> 4;
+			card->version.fw_minor = rbuf[5] & 0x0F;
+		}
+		else if (rv == 6)
 		{
 			drvdata->isoapplet_features = ((unsigned int)rbuf[2] << 8) | rbuf[3];
 			card->version.hw_major = rbuf[4] >> 4;
 			card->version.hw_minor = rbuf[4] & 0x0F;
 			card->version.fw_major = rbuf[5] >> 4;
 			card->version.fw_minor = rbuf[5] & 0x0F;
+		}
+		else
+		{
+			sc_log(card->ctx, "IsoApplet: Invalid card config data.");
+			return SC_ERROR_INVALID_CARD;
 		}
 	}
 
@@ -1191,6 +1206,41 @@ isoApplet_ctl_erase_card(sc_card_t *card)
 	LOG_FUNC_RETURN(card->ctx, SC_SUCCESS);
 }
 
+/*
+ * @brief Return card serial number
+ */
+static int
+isoApplet_ctl_get_serialnr(sc_card_t *card, sc_serial_number_t *serial)
+{
+	int r;
+	sc_apdu_t apdu;
+	u8  rbuf[SC_MAX_APDU_BUFFER_SIZE];
+	struct isoApplet_drv_data *drvdata = (struct isoApplet_drv_data *)card->drv_data;
+
+	LOG_FUNC_CALLED(card->ctx);
+	if (drvdata->isoapplet_version < ISOAPPLET_VERSION_C7 || drvdata->isoapplet_version >= ISOAPPLET_VERSION_V1)
+	{
+		memset(serial, 0, sizeof(*serial));
+		LOG_FUNC_RETURN(card->ctx, SC_ERROR_NOT_IMPLEMENTED);
+	}
+	/* ISO7816 proprietary GET VALUE apdu */
+	sc_format_apdu(card, &apdu, SC_APDU_CASE_2_SHORT, 0x6C, 0x01, 0x00);
+	apdu.cla = 0x80;
+	apdu.resp = rbuf;
+	apdu.resplen = sizeof(rbuf);
+	apdu.le = SC_MAX_SERIALNR;
+	r = sc_transmit_apdu(card, &apdu);
+	SC_TEST_RET(card->ctx, SC_LOG_DEBUG_NORMAL, r,  "APDU transmit failed");
+	r = sc_check_sw(card, apdu.sw1, apdu.sw2);
+	LOG_TEST_RET(card->ctx, r, "Card returned error");
+	/* cache serial number */
+	memcpy(card->serialnr.value, rbuf, apdu.resplen);
+	card->serialnr.len = apdu.resplen;
+	/* copy and return serial number */
+	memcpy(serial, &card->serialnr, sizeof(*serial));
+	LOG_FUNC_RETURN(card->ctx, SC_SUCCESS);
+}
+
 static int
 isoApplet_card_ctl(sc_card_t *card, unsigned long cmd, void *ptr)
 {
@@ -1217,6 +1267,10 @@ isoApplet_card_ctl(sc_card_t *card, unsigned long cmd, void *ptr)
 		break;
 	case SC_CARDCTL_ERASE_CARD:
 		r = isoApplet_ctl_erase_card(card);
+		break;
+	case SC_CARDCTL_GET_SERIALNR:
+		r = isoApplet_ctl_get_serialnr(card,
+		                             (sc_serial_number_t *) ptr);
 		break;
 	default:
 		r = SC_ERROR_NOT_SUPPORTED;

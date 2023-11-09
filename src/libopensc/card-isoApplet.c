@@ -185,6 +185,8 @@ isoApplet_get_info(sc_card_t * card, struct isoApplet_drv_data * drvdata) {
 		else if ((rv == 7) && (rbuf[3] == 0xC7)) /* C7_LEGACY_MODE */
 		{
 			drvdata->isoapplet_features = rbuf[2];
+			if (rbuf[6] & 0x80)
+				drvdata->isoapplet_features |= ISOAPPLET_API_FEATURE_ENABLE_IMPORT_EXPORT;
 			card->version.hw_major = rbuf[4] >> 4;
 			card->version.hw_minor = rbuf[4] & 0x0F;
 			card->version.fw_major = rbuf[5] >> 4;
@@ -1572,7 +1574,7 @@ isoApplet_list_files(struct sc_card *card, u8 *buf, size_t buflen) {
 	sc_apdu_t apdu;
 	int r;
 	struct isoApplet_drv_data *drvdata = (struct isoApplet_drv_data *)card->drv_data;
-	if (drvdata->isoapplet_version < ISOAPPLET_VERSION_C7 || drvdata->isoapplet_version >= ISOAPPLET_VERSION_V1)
+	if ((drvdata->isoapplet_version < ISOAPPLET_VERSION_C7 && !(drvdata->isoapplet_features & ISOAPPLET_API_FEATURE_ENABLE_IMPORT_EXPORT)) || drvdata->isoapplet_version >= ISOAPPLET_VERSION_V1)
 		return SC_ERROR_NOT_SUPPORTED;
 	/* ISO7816 interindustry GET_DATA apdu */
 	sc_format_apdu(card, &apdu, SC_APDU_CASE_2_SHORT, 0xCA, 0x01, 0);

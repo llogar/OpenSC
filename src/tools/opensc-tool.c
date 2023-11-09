@@ -32,6 +32,7 @@
 
 #include "libopensc/opensc.h"
 #include "libopensc/cardctl.h"
+#include "libopensc/asn1.h"
 #include "util.h"
 
 /* type for associations of IDs to names */
@@ -73,6 +74,8 @@ static const struct option options[] = {
 	{ "list-algorithms",    0, NULL,	OPT_LIST_ALG },
 	{ "wait",		0, NULL,		'w' },
 	{ "verbose",		0, NULL,		'v' },
+	{ "read",		1, NULL,		'R' },
+	{ "write",		1, NULL,		'W' },
 	{ NULL, 0, NULL, 0 }
 };
 
@@ -94,6 +97,8 @@ static const char *option_help[] = {
 	"Lists algorithms supported by card",
 	"Wait for a card to be inserted",
 	"Verbose operation, may be used several times",
+	"Read whole card contents",
+	"Write whole card contents",
 };
 
 static sc_context_t *ctx = NULL;
@@ -677,6 +682,632 @@ static int card_reset(const char *reset_type)
 	return 0;
 }
 
+static char *desc_nameImpExp(int type, const char *file)
+{
+	static char tmp[256];
+	if (strcmp(file, "3f005015") == 0) {
+		strcpy(tmp, "PKCS15-AppDF");
+	} else if (strcmp(file, "3f0050154401") == 0) {
+		strcpy(tmp, "PKCS15-AODF");
+	} else if (strcmp(file, "3f0050155031") == 0) {
+		strcpy(tmp, "PKCS15-ODF");
+	} else if (strcmp(file, "3f0050155032") == 0) {
+		strcpy(tmp, "PKCS15-TokenInfo");
+	} else if (strcmp(file, "3f0050154946") == 0) {
+		strcpy(tmp, "profile-name");
+	} else if (strcmp(file, "3f0050154402") == 0) {
+		strcpy(tmp, "PKCS15-PrKDF");
+	} else if (strcmp(file, "3f0050154404") == 0) {
+		strcpy(tmp, "PKCS15-CDF");
+	} else if (strcmp(file, "3f0050154403") == 0) {
+		strcpy(tmp, "PKCS15-PuKDF");
+	} else if (strcmp(file, "3f0050154405") == 0) {
+		strcpy(tmp, "PKCS15-DODF");
+	} else if (strcmp(file, "3f002f00") == 0) {
+		strcpy(tmp, "DIR");
+	} else if (strncmp(file, "3f00501532xx", 10) == 0) {
+		sprintf(tmp, "data #%s", file[10] != '0' ? &file[10] : &file[11]);
+	} else if (strncmp(file, "3f00501533xx", 10) == 0) {
+		sprintf(tmp, "public-key #%s", file[10] != '0' ? &file[10] : &file[11]);
+	} else if (strncmp(file, "3f00501534xx", 10) == 0) {
+		sprintf(tmp, "certificate #%s", file[10] != '0' ? &file[10] : &file[11]);
+	} else if (strncmp(file, "3f00501535xx", 10) == 0) {
+		sprintf(tmp, "privdata #%s", file[10] != '0' ? &file[10] : &file[11]);
+	} else {
+		strcpy(tmp, file);
+	}
+	return tmp;
+}
+
+static int print_fileImpExp(FILE *fh, sc_card_t *in_card, const sc_file_t *file,
+	const sc_path_t *path, int depth)
+{
+	int r;
+
+	if (file->id == 0x3F00)
+		return 0;
+
+	fprintf(stdout, "Reading %s\n", desc_nameImpExp(file->type, sc_print_path(path)));
+
+	fprintf(fh, "; FILE %s FCI=6F158102%02X%02X8201%02X8302%02X%02X8608%02X%02X%02X%02X%02X%02X%02X%02X\n",
+		sc_print_path(path),
+		(int)file->size/0x100, (int)file->size%0x100,						/* size */
+		file->type == SC_FILE_TYPE_DF ? 0x38 : 0x01,						/* type */
+		path->value[path->len - 2], path->value[path->len - 1],
+		file->sec_attr[0], file->sec_attr[1], file->sec_attr[2], file->sec_attr[3], file->sec_attr[4], file->sec_attr[5], file->sec_attr[6], file->sec_attr[7]);
+
+	if (file->type == SC_FILE_TYPE_DF)
+		return 0;
+
+	if (file->ef_structure == SC_FILE_EF_TRANSPARENT) {
+		unsigned char *buf;
+
+		if (!(buf = malloc(file->size))) {
+			fprintf(stderr, "out of memory");
+			return -1;
+		}
+
+		r = sc_read_binary(in_card, 0, buf, file->size, 0);
+		if (r > 0)
+			util_hex_dump_asc(fh, buf, r, -1);
+		free(buf);
+	} else {
+		fprintf(stderr, "not a transparent file");
+		return -2;
+	}
+	return 0;
+}
+
+static int enum_dirImpExp(FILE *fh, sc_path_t path, int depth)
+{
+	sc_file_t *file;
+	int r, file_type;
+	u8 files[SC_MAX_APDU_BUFFER_SIZE];
+
+	r = sc_select_file(card, &path, &file);
+	if (r) {
+		fprintf(stderr, "SELECT FILE failed: %s\n", sc_strerror(r));
+		return -1;
+	}
+	print_fileImpExp(fh, card, file, &path, depth);
+	file_type = file->type;
+	sc_file_free(file);
+	if (file_type == SC_FILE_TYPE_DF) {
+		int i;
+
+		r = sc_list_files(card, files, sizeof(files));
+		if (r < 0) {
+			fprintf(stderr, "sc_list_files() failed: %s\n", sc_strerror(r));
+			return -2;
+		}
+		if (r > 0) {
+			for (i = 0; i < r/2; i++) {
+				sc_path_t tmppath;
+
+				memset(&tmppath, 0, sizeof(tmppath));
+				memcpy(&tmppath, &path, sizeof(path));
+				memcpy(tmppath.value + tmppath.len, files + 2*i, 2);
+				tmppath.len += 2;
+				enum_dirImpExp(fh, tmppath, depth + 1);
+			}
+		}
+	}
+	return 0;
+}
+
+static int send_apduImpExp(u8 *buf, size_t len, u8 *rbuf, size_t rlen)
+{
+	sc_apdu_t apdu;
+	size_t r;
+
+	r = sc_bytes2apdu(card->ctx, buf, len, &apdu);
+	if (r) {
+		fprintf(stderr, "invalid APDU: %s\n", sc_strerror(r));
+		return -1;
+	}
+
+	apdu.resp = rbuf;
+	apdu.resplen = rlen;
+
+	r = sc_transmit_apdu(card, &apdu);
+
+	if (r) {
+		fprintf(stderr, "APDU transmit failed: %s\n", sc_strerror(r));
+		return -2;
+	}
+	if ((apdu.sw1 != 0x90) || (apdu.sw2 != 0x00)) {
+		fprintf(stderr, "received (SW1=0x%02X, SW2=0x%02X)%s\n", apdu.sw1, apdu.sw2,
+		      apdu.resplen ? ":" : "");
+	}
+
+	return apdu.resplen;
+}
+
+static u8 *read_blobImpExp(FILE *fh, const char *first_line, size_t len)
+{
+	char line[256];
+	u8 *buf;
+	unsigned h;
+
+	if (len > 32768)
+		return NULL;
+
+	buf = (u8*)malloc(len);
+
+	for (size_t pos = 0; pos < len; ) {
+		if (first_line) {
+			strcpy(line, first_line);
+			first_line = NULL;
+		} else {
+			if (fgets(line, 250, fh) == NULL) {
+				free(buf);
+				return NULL;
+			}
+		}
+		for (int n = 0; n < 16; n++) {
+			if (sscanf(&line[3*n], "%02X", &h) != 1) {
+				free(buf);
+				return NULL;
+			}
+			buf[pos++] = h;
+			if (pos == len)
+				break;
+		}
+	}
+
+	return buf;
+}
+
+static int mkdirImpExp(char *name, u8 *fci, size_t fci_len)
+{
+	sc_path_t path;
+	const u8 *tag_val, *tv;
+	u8 buf[32];
+	size_t tag_len, tl, buf_len;
+	sc_file_t *file;
+	int r;
+
+	buf_len = sizeof(buf);
+	sc_hex_to_bin(name, buf, &buf_len);
+	if (buf_len < 2) {
+		fprintf(stderr, "invalud path\n");
+		return -1;
+	}
+	if (sc_path_set(&path, SC_PATH_TYPE_FILE_ID, buf, buf_len - 2, 0, 0) != SC_SUCCESS) {
+		fprintf(stderr, "unable to set path\n");
+		return -2;
+	}
+
+	/* Select parent file */
+	r = sc_select_file(card, &path, &file);
+	if (r) {
+		fprintf(stderr, "SELECT FILE failed: %s\n", sc_strerror(r));
+		return -3;
+	}
+
+	/* Parse outer tag 0x6F */
+	tag_val =  sc_asn1_find_tag(card->ctx, fci, fci_len, (unsigned int) 0x6F, &tag_len);
+	if (tag_val == NULL) {
+		fprintf(stderr, "invalid or missing fci\n");
+		return -4;
+	}
+
+	file = sc_file_new();
+	file->type = SC_FILE_TYPE_DF;
+	file->status = SC_FILE_STATUS_ACTIVATED;
+
+	/* Parse tag 0x83 - file id */
+	tv =  sc_asn1_find_tag(card->ctx, tag_val, tag_len, (unsigned int) 0x83, &tl);
+	if ((tv == NULL) || (tl != 2)) {
+		fprintf(stderr, "invalid or missing file id\n");
+		return -5;
+	}
+	file->id = (tv[0] << 8) | tv[1];
+
+	/* Parse tag 0x81 - file size */
+	tv =  sc_asn1_find_tag(card->ctx, tag_val, tag_len, (unsigned int) 0x81, &tl);
+	if ((tv == NULL) || (tl != 2)) {
+		fprintf(stderr, "invalid or missing file size\n");
+		return -6;
+	}
+	file->size = (tv[0] << 8) + tv[1];
+
+	/* Parse tag 0x86 - security attributes */
+	tv =  sc_asn1_find_tag(card->ctx, tag_val, tag_len, (unsigned int) 0x86, &tl);
+	if ((tv == NULL) || (tl != 8)) {
+		fprintf(stderr, "invalid or missing security attributes\n");
+		return -7;
+	}
+	file->sec_attr = malloc(tl);
+	file->sec_attr_len = tl;
+	memcpy(file->sec_attr, tv, tl);
+
+	r = sc_create_file(card, file);
+	if (r) {
+		fprintf(stderr, "CREATE FILE failed\n");
+		return -8;
+	}
+
+	sc_file_free(file);
+	return r;
+}
+
+static int mkfileImpExp(char *name, u8 *fci, size_t fci_len, u8 *data, size_t len)
+{
+	sc_path_t path;
+	const u8 *tag_val, *tv;
+	u8 buf[32];
+	size_t tag_len, tl, buf_len;
+	sc_file_t *file;
+	int r;
+
+	buf_len = sizeof(buf);
+	sc_hex_to_bin(name, buf, &buf_len);
+	if (buf_len < 4) {
+		fprintf(stderr, "invalud path\n");
+		return -1;
+	}
+	if (buf_len == 4) {
+		if (sc_path_set(&path, SC_PATH_TYPE_FILE_ID, buf, buf_len - 2, 0, 0) != SC_SUCCESS) {
+			fprintf(stderr, "unable to set path\n");
+			return -2;
+		}
+	} else {
+		if (sc_path_set(&path, SC_PATH_TYPE_PATH, &buf[2], buf_len - 4, 0, 0) != SC_SUCCESS) {
+			fprintf(stderr, "unable to set path\n");
+			return -2;
+		}
+	}
+
+	/* Select parent file */
+	r = sc_select_file(card, &path, &file);
+	if (r) {
+		fprintf(stderr, "SELECT FILE failed: %s\n", sc_strerror(r));
+		return -3;
+	}
+
+	/* Parse outer tag 0x6F */
+	tag_val =  sc_asn1_find_tag(card->ctx, fci, fci_len, (unsigned int) 0x6F, &tag_len);
+	if (tag_val == NULL) {
+		fprintf(stderr, "invalid or missing fci\n");
+		return -4;
+	}
+
+	file = sc_file_new();
+	file->type = SC_FILE_TYPE_WORKING_EF;
+	file->ef_structure = SC_FILE_EF_TRANSPARENT;
+	file->status = SC_FILE_STATUS_ACTIVATED;
+
+	/* Parse tag 0x83 - file id */
+	tv =  sc_asn1_find_tag(card->ctx, tag_val, tag_len, (unsigned int) 0x83, &tl);
+	if ((tv == NULL) || (tl != 2)) {
+		fprintf(stderr, "invalid or missing file id\n");
+		return -5;
+	}
+	file->id = (tv[0] << 8) | tv[1];
+
+	/* Parse tag 0x81 - file size */
+	tv =  sc_asn1_find_tag(card->ctx, tag_val, tag_len, (unsigned int) 0x81, &tl);
+	if ((tv == NULL) || (tl != 2)) {
+		fprintf(stderr, "invalid or missing file size\n");
+		return -6;
+	}
+	file->size = (tv[0] << 8) + tv[1];
+
+	/* Parse tag 0x86 - security attributes */
+	tv =  sc_asn1_find_tag(card->ctx, tag_val, tag_len, (unsigned int) 0x86, &tl);
+	if ((tv == NULL) || (tl != 8)) {
+		fprintf(stderr, "invalid or missing security attributes\n");
+		return -7;
+	}
+	file->sec_attr = malloc(tl);
+	file->sec_attr_len = tl;
+	memcpy(file->sec_attr, tv, tl);
+
+	r = sc_create_file(card, file);
+	if (r) {
+		fprintf(stderr, "CREATE FILE failed\n");
+		return -8;
+	}
+
+	r = sc_update_binary(card, 0, data, file->size, 0);
+	if (r != (int)file->size) {
+		fprintf(stderr, "UPDATE BINARY failed\n");
+		return -8;
+	}
+
+	sc_file_free(file);
+	return r;
+}
+
+static int card_readImpExp(const char *file)
+{
+	FILE *fh;
+	u8 select_isoApplet[] = {0x00, 0xA4, 0x04, 0x00, 0x0C, 0xF2, 0x76, 0xA2, 0x88, 0xBC, 0xFB, 0xA6, 0x9D, 0x34, 0xF3, 0x10, 0x01, 0xFF};
+	u8 read_config[] = {0x00, 0xCA, 0x3F, 0xCF, 0xFF};
+	u8 read_key[] = {0x00, 0xCA, 0x3F, 0xFF, 0x01, 0x00, 0xFF};
+	u8 resp[SC_MAX_EXT_APDU_BUFFER_SIZE];
+	int resplen;
+	sc_path_t path;
+	const u8 *tag_val;
+	size_t tag_len;
+	int key_max_count;
+	u8 import_export = 0x00;
+
+	resplen = send_apduImpExp(select_isoApplet, sizeof(select_isoApplet), resp, sizeof(resp));
+	if (resplen < 0) {
+		return -1;
+	}
+	if (resplen != 6) {
+		if (resplen != 7) {
+			fprintf(stderr, "Unsupported IsoApplet version\n");
+			return -2;
+		}
+		if ((resp[6] & 0x80) == 0) {
+			fprintf(stderr, "Unsupported IsoApplet version\n");
+			return -3;
+		}
+		resp[0] = 0;
+		resp[1] = 7;
+		resp[3] = 0xC0;
+	}
+	if ((resp[0] == 0) && (resp[1] < 7)) {
+		fprintf(stderr, "Unsupported IsoApplet version\n");
+		return -4;
+	}
+	if (resp[3] & 0x80) {
+		fprintf(stderr, "IsoApplet v%X.%X EXPORT %s\n", resp[0], resp[1], resp[3] & 0x40 ? "enabled" : "disabled");
+		import_export = 0x02 | (resp[3] & 0x40 ? 0x01 : 0x00);
+	} else {
+		fprintf(stderr, "IsoApplet v%X.%X RELEASE\n", resp[0], resp[1]);
+		import_export = 0x00;
+	}
+
+	fh = fopen(file, "w");
+	if (fh == NULL) {
+		fprintf(stderr, "can not open file '%s'\n", file);
+		return -5;
+	}
+
+	fprintf(stdout, "Reading general settings\n");
+
+	resplen = send_apduImpExp(read_config, sizeof(read_config), resp, sizeof(resp));
+	if (resplen < 0) {
+		return -6;
+        }
+	fprintf(fh, "; INFO\n");
+	util_hex_dump_asc(fh, resp, resplen, -1);
+
+	if ((import_export & 0x01) == 0x00) {
+		if (fh != stdout) {
+			fclose(fh);
+		}
+		fprintf(stdout, "Done\n");
+		return 0;
+	}
+
+	/* Find TAG_CONFIG */
+	tag_val = sc_asn1_find_tag(card->ctx, resp, resplen, (unsigned int) 0xCF, &tag_len);
+	if (tag_val == NULL) {
+		fprintf(stderr, "invalid config data\n");
+		return -7;
+	}
+
+	/* Find TAG_KEY_MAX_COUNT */
+	tag_val = sc_asn1_find_tag(card->ctx, tag_val, tag_len, (unsigned int) 0x07, &tag_len);
+	if (tag_val == NULL) {
+		fprintf(stderr, "missing TAG_KEY_MAX_COUNT.\n");
+		return -8;
+	}
+	key_max_count = tag_val[0];
+
+	sc_format_path("3F00", &path);
+	enum_dirImpExp(fh, path, 0);
+
+	for (int n = 0; n < key_max_count; n++) {
+		read_key[5] = n;
+		resplen = send_apduImpExp(read_key, sizeof(read_key), resp, sizeof(resp));
+		if (resplen < 0) {
+			return -9;
+		}
+		if (resplen != 0) {
+			fprintf(stdout, "Reading private key #%d\n", n);
+			fprintf(fh, "; KEY #%d\n", n);
+			util_hex_dump_asc(fh, resp, resplen, -1);
+		}
+	}
+
+	if (fh != stdout) {
+		fclose(fh);
+	}
+
+	fprintf(stdout, "Done\n");
+
+	return 0;
+}
+
+static int card_writeImpExp(const char *file)
+{
+	u8 select_isoApplet[] = {0x00, 0xA4, 0x04, 0x00, 0x0C, 0xF2, 0x76, 0xA2, 0x88, 0xBC, 0xFB, 0xA6, 0x9D, 0x34, 0xF3, 0x10, 0x01, 0xFF};
+	FILE *fh;
+	char buf[256], first_line[256];
+	u8 apdu[SC_MAX_EXT_APDU_BUFFER_SIZE];
+	u8 *data, tmp[256];
+	const u8* tag_val, *tv;
+	size_t len, tag_len, tmp_len, tl;
+	u8 resp[SC_MAX_EXT_APDU_BUFFER_SIZE];
+	int resplen;
+	int import_export = 0x00;
+
+	resplen = send_apduImpExp(select_isoApplet, sizeof(select_isoApplet), resp, sizeof(resp));
+	if (resplen < 0) {
+		return -1;
+	}
+	if (resplen != 6) {
+		if (resplen != 7) {
+			fprintf(stderr, "Unsupported IsoApplet version\n");
+			return -2;
+		}
+		if ((resp[6] & 0x80) == 0) {
+			fprintf(stderr, "Unsupported IsoApplet version\n");
+			return -3;
+		}
+		resp[0] = 0;
+		resp[1] = 7;
+		resp[3] = 0xC0;
+	}
+	if ((resp[0] == 0) && (resp[1] < 7)) {
+		fprintf(stderr, "Unsupported IsoApplet version\n");
+		return -4;
+	}
+	if (resp[3] & 0x80) {
+		fprintf(stderr, "IsoApplet v%X.%X EXPORT %s\n", resp[0], resp[1], resp[3] & 0x40 ? "enabled" : "disabled");
+		import_export = 0x02 | (resp[3] & 0x40 ? 0x01 : 0x00);
+	} else {
+		fprintf(stderr, "IsoApplet v%X.%X RELEASE\n", resp[0], resp[1]);
+		import_export = 0x00;
+	}
+
+	if ((import_export & 0x01) == 0x00) {
+		fprintf(stdout, "Import disabled\n");
+		return -5;
+	}
+
+	fh = fopen(file, "rb");
+	if (fh == NULL) {
+		fprintf(stderr, "can not open file '%s'\n", file);
+		return -6;
+	}
+
+	while (!feof(fh)) {
+		if (fgets(buf, 250, fh) == NULL)
+			break;
+		if (strncmp(buf, "; INFO", 6) == 0) {
+			if (fgets(first_line, sizeof(first_line), fh) == NULL) {
+				fprintf(stderr, "error reading file\n");
+				break;
+			}
+			tmp_len = sizeof(tmp);
+			sc_hex_to_bin(first_line, tmp, &tmp_len);
+			if (tmp[0] != 0xCF) {
+				fprintf(stderr, "invalid or missing config tag\n");
+				break;
+			}
+			tag_val =  sc_asn1_find_tag(card->ctx, tmp, 16384, (unsigned int) 0xCF, &tag_len);
+			len = (tag_len > 127 ? 3 : 2) + tag_len;
+			fprintf(stdout, "Initialising card\n");
+			data = read_blobImpExp(fh, first_line, len);
+			if (data == NULL) {
+				fprintf(stderr, "error reading config data\n");
+				break;
+			}
+			apdu[0] = 0x80;
+			apdu[1] = 0x50;
+			apdu[2] = 0x00;
+			apdu[3] = 0x00;
+			apdu[4] = len;
+			memcpy(&apdu[5], data, len);
+			resplen = send_apduImpExp(apdu, len + 5, resp, sizeof(resp));
+			if (resplen < 0) {
+				break;
+			}
+			free(data);
+		}
+		if (strncmp(buf, "; KEY", 5) == 0) {
+			if (fgets(first_line, 250, fh) == NULL) {
+				fprintf(stderr, "error reading file\n");
+				break;
+			}
+			tmp_len = sizeof(tmp);
+			sc_hex_to_bin(first_line, tmp, &tmp_len);
+			if ((tmp[0] == 0x7F) && (tmp[1] == 0x48)) {
+				tag_val = sc_asn1_find_tag(card->ctx, tmp, 16384, (unsigned int) 0x7F48, &tag_len);
+			} else if ((tmp[0] = 0xE0)) {
+				tag_val =  sc_asn1_find_tag(card->ctx, tmp, 16384, (unsigned int) 0xE0, &tag_len);
+			} else {
+				fprintf(stderr, "invalid key data\n");
+				break;
+			}
+			len = tag_len + (tag_val - tmp);
+			tv = sc_asn1_find_tag(card->ctx, tag_val, tag_len, (unsigned int) 0x1D, &tl);
+			if ((tv == 0) || (tl != 1)) {
+				fprintf(stderr, "invalid key reference\n");
+				break;
+			}
+			fprintf(stdout, "Writing private key #%u\n", tv[0]);
+			data = read_blobImpExp(fh, first_line, len);
+			if (data == NULL) {
+				fprintf(stderr, "error reading key data\n");
+				break;
+			}
+			for (size_t pos = 0; pos < len;) {
+				size_t len0 = len - pos;
+				apdu[0] = len0 > 0xFF ? 0x10 : 0x00;
+				apdu[1] = 0xDB;
+				apdu[2] = 0x3F;
+				apdu[3] = 0xFF;
+				apdu[4] = len0 > 0xFF ? 0xFF : len0;
+				memcpy(&apdu[5], &data[pos], len0 > 0xFF ? 0xFF : len0);
+				resplen = send_apduImpExp(apdu, len0 > 0xFF ? 0x104 : len0 + 5, resp, sizeof(resp));
+				if (resplen < 0) {
+					break;
+				}
+				pos += len0 > 0xFF ? 0xFF : len0;
+			}
+			free(data);
+		}
+		if (strncmp(buf, "; FILE", 6) == 0) {
+			char name[64];
+			u8 fci[64];
+			const u8 *tag_val, *tv;
+			size_t fci_len = sizeof(fci), tag_len, tl;
+			sscanf(strstr(buf, "FILE ") + 5, "%s", name);
+			sc_hex_to_bin(strstr(buf, "FCI=") + 4, fci, &fci_len);
+			tag_val =  sc_asn1_find_tag(card->ctx, fci, fci_len, (unsigned int) 0x6F, &tag_len);
+			if (tag_val == NULL) {
+				fprintf(stderr, "invalid or missing fci\n");
+				break;
+			}
+			tv = sc_asn1_find_tag(card->ctx, tag_val, tag_len, (unsigned int) 0x81, &tl);
+			if ((tv == NULL) || (tl != 2)) {
+				fprintf(stderr, "invalid or missing file size\n");
+				break;
+			}
+			len = (tv[0] << 8) + tv[1];
+			tag_val =  sc_asn1_find_tag(card->ctx, tag_val, tag_len, (unsigned int) 0x82, &tag_len);
+			if (tag_val == NULL) {
+				break;
+				fprintf(stderr, "invalid or missing file type\n");
+			}
+			if (tag_val[0] == 0x38) {
+				fprintf(stdout, "Creating %s\n", desc_nameImpExp(SC_FILE_TYPE_DF, name));
+				if (mkdirImpExp(name, fci, fci_len) != 0) {
+					break;
+				}
+			} else if (tag_val[0] == 0x01) {
+				fprintf(stdout, "Writing %s\n", desc_nameImpExp(SC_FILE_TYPE_WORKING_EF, name));
+				data = read_blobImpExp(fh, NULL, len);
+				if (data == NULL) {
+					fprintf(stderr, "error reading file data\n");
+					break;
+				}
+				if (mkfileImpExp(name, fci, fci_len, data, len) != (int)len)
+					break;
+				free(data);
+			} else {
+					fprintf(stderr, "invalid file type\n");
+					break;
+			}
+		}
+	}
+
+	fclose(fh);
+
+	fprintf(stdout, "Done\n");
+
+	return 0;
+}
+
 int main(int argc, char *argv[])
 {
 	int err = 0, r, c, long_optind = 0;
@@ -694,15 +1325,18 @@ int main(int argc, char *argv[])
 	int do_list_algorithms = 0;
 	int do_reset = 0;
 	int action_count = 0;
+	int do_read = 0;
+	int do_write = 0;
 	const char *opt_driver = NULL;
 	const char *opt_conf_entry = NULL;
 	const char *opt_reset_type = NULL;
+	const char *opt_file = NULL;
 	char **p;
 	struct sc_reader *reader = NULL;
 	sc_context_param_t ctx_param;
 
 	while (1) {
-		c = getopt_long(argc, argv, "inlG:S:fr:vs:Dc:aw", options, &long_optind);
+		c = getopt_long(argc, argv, "inlG:S:fr:vs:Dc:awR:W:", options, &long_optind);
 		if (c == -1)
 			break;
 		if (c == '?')
@@ -791,6 +1425,16 @@ int main(int argc, char *argv[])
 		case OPT_RESET:
 			do_reset = 1;
 			opt_reset_type = optarg;
+			action_count++;
+			break;
+		case 'R':
+			do_read = 1;
+			opt_file = optarg;
+			action_count++;
+			break;
+		case 'W':
+			do_write = 1;
+			opt_file = optarg;
 			action_count++;
 			break;
 		}
@@ -923,6 +1567,19 @@ int main(int argc, char *argv[])
 			goto end;
 		action_count--;
 	}
+
+	if (do_read) {
+		if ((err = card_readImpExp(opt_file)))
+			goto end;
+		action_count--;
+	}
+
+	if (do_write) {
+		if ((err = card_writeImpExp(opt_file)))
+			goto end;
+		action_count--;
+	}
+
 end:
 	sc_disconnect_card(card);
 	sc_release_context(ctx);

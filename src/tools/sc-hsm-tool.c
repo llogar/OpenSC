@@ -88,7 +88,7 @@ static const struct option options[] = {
 #ifdef PRINT_DKEK_SHARE
 	{ "print-dkek-share",		1, NULL,		'P' },
 #endif
-	{ "wrap-key",				1, NULL,		'W' },
+	{ "wrap-key",				1, NULL,		'K' },
 	{ "unwrap-key",				1, NULL,		'U' },
 	{ "public-key-auth",		1, NULL,		'K' },
 	{ "required-pub-keys",		1, NULL,		'n' },
@@ -110,6 +110,10 @@ static const struct option options[] = {
 	{ "reader",					1, NULL,		'r' },
 	{ "wait",					0, NULL,		'w' },
 	{ "verbose",				0, NULL,		'v' },
+	{ "gen-dev-aut",			1, NULL,		'G' },
+	{ "import-dev-aut",			1, NULL,		'D' },
+	{ "read",				1, NULL,		'R' },
+	{ "write",				1, NULL,		'W' },
 	{ NULL, 0, NULL, 0 }
 };
 
@@ -142,6 +146,10 @@ static const char *option_help[] = {
 	"Uses reader number <arg> [0]",
 	"Wait for a card to be inserted",
 	"Verbose operation, may be used several times",
+	"Generate Device Authenticaion Key",
+	"Import Device Authenticaion Key",
+	"Read whole card contents",
+	"Write whole card contents",
 };
 
 typedef struct {
@@ -1693,6 +1701,480 @@ static int unwrap_key(sc_card_t *card, int keyid, const char *inf, const char *p
 	return 0;
 }
 
+static int send_apduImpExp(sc_card_t *card, u8 *buf, size_t len, u8 *rbuf, size_t rlen);
+
+static int generate_dev_aut(sc_card_t *card, const char *name)
+{
+	u8 apdu[] = {   0x00, 0x46, 0x01, 0x00, 0x00, 0x01, 0x00,
+			0x5F, 0x29, 0x01, 0x00,
+			0x42, 0x09, 0x55, 0x54, 0x43, 0x41, 0x30, 0x30, 0x30, 0x30, 0x31,
+			0x7F, 0x49, 0x81, 0xDA,
+				0x06, 0x0A, 0x04, 0x00, 0x7F, 0x00, 0x07, 0x02, 0x02, 0x02, 0x02, 0x03,
+				0x81, 0x20, 0xA9, 0xFB, 0x57, 0xDB, 0xA1, 0xEE, 0xA9, 0xBC, 0x3E, 0x66, 0x0A, 0x90, 0x9D, 0x83, 0x8D, 0x72, 0x6E, 0x3B, 0xF6, 0x23, 0xD5, 0x26, 0x20, 0x28, 0x20, 0x13, 0x48, 0x1D, 0x1F, 0x6E, 0x53, 0x77,
+				0x82, 0x20, 0x7D, 0x5A, 0x09, 0x75, 0xFC, 0x2C, 0x30, 0x57, 0xEE, 0xF6, 0x75, 0x30, 0x41, 0x7A, 0xFF, 0xE7, 0xFB, 0x80, 0x55, 0xC1, 0x26, 0xDC, 0x5C, 0x6C, 0xE9, 0x4A, 0x4B, 0x44, 0xF3, 0x30, 0xB5, 0xD9,
+				0x83, 0x20, 0x26, 0xDC, 0x5C, 0x6C, 0xE9, 0x4A, 0x4B, 0x44, 0xF3, 0x30, 0xB5, 0xD9, 0xBB, 0xD7, 0x7C, 0xBF, 0x95, 0x84, 0x16, 0x29, 0x5C, 0xF7, 0xE1, 0xCE, 0x6B, 0xCC, 0xDC, 0x18, 0xFF, 0x8C, 0x07, 0xB6,
+				0x84, 0x41, 0x04, 0x8B, 0xD2, 0xAE, 0xB9, 0xCB, 0x7E, 0x57, 0xCB, 0x2C, 0x4B, 0x48, 0x2F, 0xFC, 0x81, 0xB7, 0xAF, 0xB9, 0xDE, 0x27, 0xE1, 0xE3, 0xBD, 0x23, 0xC2, 0x3A, 0x44, 0x53, 0xBD, 0x9A, 0xCE, 0x32, 0x62,
+						  0x54, 0x7E, 0xF8, 0x35, 0xC3, 0xDA, 0xC4, 0xFD, 0x97, 0xF8, 0x46, 0x1A, 0x14, 0x61, 0x1D, 0xC9, 0xC2, 0x77, 0x45, 0x13, 0x2D, 0xED, 0x8E, 0x54, 0x5C, 0x1D, 0x54, 0xC7, 0x2F, 0x04, 0x69, 0x97,
+				0x85, 0x20, 0xA9, 0xFB, 0x57, 0xDB, 0xA1, 0xEE, 0xA9, 0xBC, 0x3E, 0x66, 0x0A, 0x90, 0x9D, 0x83, 0x8D, 0x71, 0x8C, 0x39, 0x7A, 0xA3, 0xB5, 0x61, 0xA6, 0xF7, 0x90, 0x1E, 0x0E, 0x82, 0x97, 0x48, 0x56, 0xA7,
+				0x87, 0x01, 0x01,
+				0x5F, 0x20, 0x10, 0x53, 0x49, 0x43, 0x46, 0x30, 0x33, 0x30, 0x30, 0x32, 0x34, 0x35, 0x30, 0x30, 0x30, 0x30, 0x31,
+			0x02, 0x00};
+	int resplen;
+	u8 resp[512];
+        char fname[64];
+	FILE *out = NULL;
+
+        strncpy((char*)apdu + sizeof(apdu) - 18, name, 16);
+	resplen = send_apduImpExp(card, apdu, sizeof(apdu), resp, sizeof(resp));
+	if (resplen <= 0) {
+		return resplen;
+	}
+
+	util_hex_dump_asc(stdout, resp, resplen, -1);
+
+        sprintf(fname, "%s_pub.bin", name);
+
+	out = fopen(fname, "wb");
+	fwrite(resp, resplen, 1, out);
+	fclose(out);
+
+	return 0;
+}
+
+
+static int import_dev_aut(sc_card_t *card, const char *file2F02)
+{
+	sc_cardctl_sc_hsm_init_param_t param;
+	FILE *in = NULL;
+	void *filebuff = malloc(16384);
+	int r, len;
+
+	in = fopen(file2F02, "rb");
+
+	if (in == NULL) {
+		free(filebuff);
+		perror(file2F02);
+		return -1;
+	}
+
+	len = fread(filebuff, 1, 16384, in);
+
+	fclose(in);
+
+	r = update_ef(card, 0x2F, 0x02, 0, filebuff, len);
+	if (r < 0) {
+		free(filebuff);
+		fprintf(stderr, "Importing DevAut key failed with %s\n", sc_strerror(r));
+		return -1;
+	}
+
+	free(filebuff);
+
+	memset(&param, 0, sizeof(param));
+	r = sc_card_ctl(card, SC_CARDCTL_SC_HSM_INITIALIZE, (void *)&param);
+	if (r < 0) {
+		fprintf(stderr, "sc_card_ctl(*, SC_CARDCTL_SC_HSM_INITIALIZE, *) failed with %s\n", sc_strerror(r));
+	}
+
+	return 0;
+}
+
+
+static int send_apduImpExp(sc_card_t *card, u8 *buf, size_t len, u8 *rbuf, size_t rlen)
+{
+	sc_apdu_t apdu;
+	size_t r;
+
+	r = sc_bytes2apdu(card->ctx, buf, len, &apdu);
+	if (r) {
+		fprintf(stderr, "invalid APDU: %s\n", sc_strerror(r));
+		return -1;
+	}
+
+	apdu.resp = rbuf;
+	apdu.resplen = rlen;
+
+	r = sc_transmit_apdu(card, &apdu);
+
+	if (r) {
+		fprintf(stderr, "APDU transmit failed: %s\n", sc_strerror(r));
+		return -2;
+	}
+	if ((apdu.sw1 != 0x90) || (apdu.sw2 != 0x00)) {
+		fprintf(stderr, "received (SW1=0x%02X, SW2=0x%02X)%s\n", apdu.sw1, apdu.sw2,
+		     apdu.resplen ? ":" : "");
+	}
+
+	return apdu.resplen;
+}
+
+static char *desc_nameImpExp(int type, const char *file)
+{
+    static char tmp[256];
+    if (strcmp(file, "2f02") == 0) {
+	strcpy(tmp, "DevAut cert");
+    } else if (strcmp(file, "2f03") == 0) {
+	strcpy(tmp, "PKCS15-TokenInfo");
+    } else {
+	strcpy(tmp, file);
+    }
+    return tmp;
+}
+
+static int print_fileImpExp(FILE *fh, sc_card_t *in_card, const sc_file_t *file,
+    const sc_path_t *path)
+{
+	int r;
+
+	fprintf(stdout, "Reading %s\n", desc_nameImpExp(file->type, sc_print_path(path)));
+
+	fprintf(fh, "; FILE %s FCI=6F0B8102%02X%02X8201%02X8302%02X%02X\n",
+		sc_print_path(path),
+		(int)file->size/0x100, (int)file->size%0x100,	/* size */
+		0x01,						/* type */
+		path->value[0], path->value[1]);
+
+	if (file->ef_structure == SC_FILE_EF_TRANSPARENT) {
+		unsigned char *buf;
+
+		if (!(buf = malloc(file->size))) {
+		    fprintf(stderr, "out of memory");
+		    return -1;
+		}
+
+		r = sc_read_binary(in_card, 0, buf, file->size, 0);
+		if (r > 0)
+		    util_hex_dump_asc(fh, buf, r, -1);
+		free(buf);
+	} else {
+		fprintf(stderr, "not a transparent file");
+		return -2;
+	}
+	return 0;
+}
+
+static int read_cfg(sc_card_t *card, const char *file)
+{
+	FILE *fh;
+	u8 read_config[] = {0x00, 0xCA, 0x3F, 0xCF, 0xFF};
+	u8 read_key[] = {0x00, 0xCA, 0x3F, 0xFF, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00};
+	u8 resp[SC_MAX_EXT_APDU_BUFFER_SIZE];
+	u8 files[SC_MAX_APDU_BUFFER_SIZE];
+	int r, n, resplen;
+	const u8 *tag_val;
+	size_t tag_len;
+	int key_max_count;
+
+	fh = fopen(file, "w");
+	if (fh == NULL) {
+		fprintf(stderr, "can not open file '%s'\n", file);
+		return -3;
+	}
+
+	fprintf(stdout, "Reading general settings\n");
+
+	resplen = send_apduImpExp(card, read_config, sizeof(read_config), resp, sizeof(resp));
+	if (resplen < 0) {
+		return -4;
+	}
+	fprintf(fh, "; INFO\n");
+	util_hex_dump_asc(fh, resp, resplen, -1);
+
+	/* Find TAG_CONFIG */
+	tag_val = sc_asn1_find_tag(card->ctx, resp, resplen, (unsigned int) 0xCF, &tag_len);
+	if (tag_val == NULL) {
+		fprintf(stderr, "invalid config data\n");
+		return -5;
+	}
+
+	/* Find TAG_KEY_MAX_COUNT */
+	tag_val = sc_asn1_find_tag(card->ctx, tag_val, tag_len, (unsigned int) 0x07, &tag_len);
+	if (tag_val == NULL) {
+		fprintf(stderr, "missing TAG_KEY_MAX_COUNT.\n");
+		return -6;
+	}
+	key_max_count = tag_val[0];
+
+	r = sc_list_files(card, files, sizeof(files));
+	if (r < 0) {
+		fprintf(stderr, "sc_list_files() failed: %s\n", sc_strerror(r));
+		return -2;
+	}
+	if (r > 0) {
+		int fc = r/2;
+		for (n = 0; n < fc; n++) {
+			sc_file_t *file;
+			sc_path_t path;
+			memcpy(path.value, files + 2*n, 2);
+			path.len = 2;
+			if (path.value[0] == 0xCC)
+				continue;
+			r = sc_select_file(card, &path, &file);
+			if (r) {
+				fprintf(stderr, "SELECT FILE failed: %s\n", sc_strerror(r));
+				return -1;
+			}
+			print_fileImpExp(fh, card, file, &path);
+		}
+	}
+
+	for (int n = 0; n < key_max_count; n++) {
+		read_key[7] = n;
+		resplen = send_apduImpExp(card, read_key, sizeof(read_key), resp, sizeof(resp));
+		if (resplen < 0) {
+			return -7;
+		}
+		if (resplen != 0) {
+			fprintf(stdout, "Reading private key #%d\n", n);
+			fprintf(fh, "; KEY #%d\n", n);
+			util_hex_dump_asc(fh, resp, resplen, -1);
+		}
+	}
+
+	if (fh != stdout) {
+		fclose(fh);
+	}
+
+	fprintf(stdout, "Done\n");
+
+	return 0;
+}
+
+static u8 *read_blobImpExp(FILE *fh, const char *first_line, size_t len)
+{
+	char line[256];
+	u8 *buf;
+	unsigned h;
+
+	if (len > 32768)
+		return NULL;
+
+	buf = (u8*)malloc(len);
+
+	for (size_t pos = 0; pos < len; ) {
+		if (first_line) {
+			strcpy(line, first_line);
+			first_line = NULL;
+		} else {
+			if (fgets(line, 250, fh) == NULL) {
+				free(buf);
+				return NULL;
+			}
+		}
+		for (int n = 0; n < 16; n++) {
+			if (sscanf(&line[3*n], "%02X", &h) != 1) {
+				free(buf);
+				return NULL;
+			}
+			buf[pos++] = h;
+			if (pos == len)
+				break;
+		}
+	}
+
+	return buf;
+}
+
+static int mkfileImpExp(sc_card_t *card, char *name, u8 *fci, size_t fci_len, u8 *data, size_t len)
+{
+	const u8 *tag_val, *tv;
+	size_t tag_len, tl;
+	sc_file_t *file;
+	int r;
+
+	/* Parse outer tag 0x6F */
+	tag_val =  sc_asn1_find_tag(card->ctx, fci, fci_len, (unsigned int) 0x6F, &tag_len);
+	if (tag_val == NULL) {
+		fprintf(stderr, "invalid or missing fci\n");
+		return -4;
+	}
+
+	file = sc_file_new();
+	file->type = SC_FILE_TYPE_WORKING_EF;
+	file->ef_structure = SC_FILE_EF_TRANSPARENT;
+	file->status = SC_FILE_STATUS_ACTIVATED;
+
+	/* Parse tag 0x83 - file id */
+	tv =  sc_asn1_find_tag(card->ctx, tag_val, tag_len, (unsigned int) 0x83, &tl);
+	if ((tv == NULL) || (tl != 2)) {
+		fprintf(stderr, "invalid or missing file id\n");
+		return -5;
+	}
+	file->id = (tv[0] << 8) | tv[1];
+
+	/* Parse tag 0x81 - file size */
+	tv =  sc_asn1_find_tag(card->ctx, tag_val, tag_len, (unsigned int) 0x81, &tl);
+	if ((tv == NULL) || (tl != 2)) {
+		fprintf(stderr, "invalid or missing file size\n");
+		return -6;
+	}
+	file->size = (tv[0] << 8) + tv[1];
+
+	file->sec_attr = NULL;
+
+	r = sc_create_file(card, file);
+	if (r) {
+		fprintf(stderr, "CREATE FILE failed\n");
+		return -8;
+	}
+
+	r = sc_update_binary(card, 0, data, file->size, 0);
+	if (r != (int)file->size) {
+		fprintf(stderr, "UPDATE BINARY failed\n");
+		return -8;
+	}
+
+	sc_file_free(file);
+	return r;
+}
+
+static int write_cfg(sc_card_t *card, const char *file)
+{
+	FILE *fh;
+	char buf[256], first_line[256];
+	u8 apdu[SC_MAX_EXT_APDU_BUFFER_SIZE];
+	u8 *data, tmp[256];
+	const u8* tag_val, *tv;
+	size_t len, tag_len, tmp_len, tl;
+	u8 resp[SC_MAX_EXT_APDU_BUFFER_SIZE];
+	int r, resplen;
+
+	fh = fopen(file, "rb");
+	if (fh == NULL) {
+		fprintf(stderr, "can not open file '%s'\n", file);
+		return -4;
+	}
+
+	while (!feof(fh)) {
+		if (fgets(buf, 250, fh) == NULL)
+			break;
+		if (strncmp(buf, "; INFO", 6) == 0) {
+			if (fgets(first_line, sizeof(first_line), fh) == NULL) {
+				fprintf(stderr, "error reading file\n");
+				break;
+			}
+			tmp_len = sizeof(tmp);
+			sc_hex_to_bin(first_line, tmp, &tmp_len);
+			if (tmp[0] != 0xCF) {
+				fprintf(stderr, "invalid or missing config tag\n");
+				break;
+			}
+			tag_val =  sc_asn1_find_tag(card->ctx, tmp, 16384, (unsigned int) 0xCF, &tag_len);
+			len = (tag_len > 127 ? 3 : 2) + tag_len;
+			fprintf(stdout, "Initialising card\n");
+			data = read_blobImpExp(fh, first_line, len);
+			if (data == NULL) {
+				fprintf(stderr, "error reading config data\n");
+				break;
+			}
+			apdu[0] = 0x80;
+			apdu[1] = 0x50;
+			apdu[2] = 0x00;
+			apdu[3] = 0x00;
+			apdu[4] = len;
+			memcpy(&apdu[5], data, len);
+			resplen = send_apduImpExp(card, apdu, len + 5, resp, sizeof(resp));
+			if (resplen < 0) {
+				break;
+			}
+			free(data);
+		}
+		if (strncmp(buf, "; KEY", 5) == 0) {
+			if (fgets(first_line, 250, fh) == NULL) {
+				fprintf(stderr, "error reading file\n");
+				break;
+			}
+			tmp_len = sizeof(tmp);
+			sc_hex_to_bin(first_line, tmp, &tmp_len);
+			if ((tmp[0] == 0x7F) && (tmp[1] == 0x48)) {
+				tag_val = sc_asn1_find_tag(card->ctx, tmp, 16384, (unsigned int) 0x7F48, &tag_len);
+			} else if ((tmp[0] = 0xE0)) {
+				tag_val =  sc_asn1_find_tag(card->ctx, tmp, 16384, (unsigned int) 0xE0, &tag_len);
+			} else {
+				fprintf(stderr, "invalid key data\n");
+				break;
+			}
+			len = tag_len + (tag_val - tmp);
+			tv = sc_asn1_find_tag(card->ctx, tag_val, tag_len, (unsigned int) 0x1D, &tl);
+			if ((tv == 0) || (tl != 1)) {
+				fprintf(stderr, "invalid key reference\n");
+				break;
+			}
+			fprintf(stdout, "Writing private key #%u\n", tv[0]);
+			data = read_blobImpExp(fh, first_line, len);
+			if (data == NULL) {
+				fprintf(stderr, "error reading key data\n");
+				break;
+			}
+			apdu[0] = 0x00;
+			apdu[1] = 0xDB;
+			apdu[2] = 0x3F;
+			apdu[3] = 0xFF;
+			apdu[4] = 0x00;
+			apdu[5] = (len >> 8);
+			apdu[6] = len & 0xFF;
+			memcpy(&apdu[7], data, len);
+			resplen = send_apduImpExp(card, apdu, 7 + len, resp, sizeof(resp));
+			if (resplen < 0) {
+				break;
+			}
+			free(data);
+		}
+		if (strncmp(buf, "; FILE", 6) == 0) {
+			char name[64];
+			u8 fci[64];
+			const u8 *tag_val, *tv;
+			size_t fci_len = sizeof(fci), tag_len, tl;
+			sscanf(strstr(buf, "FILE ") + 5, "%s", name);
+			sc_hex_to_bin(strstr(buf, "FCI=") + 4, fci, &fci_len);
+			tag_val =  sc_asn1_find_tag(card->ctx, fci, fci_len, (unsigned int) 0x6F, &tag_len);
+			if (tag_val == NULL) {
+				fprintf(stderr, "invalid or missing fci\n");
+				break;
+			}
+			tv = sc_asn1_find_tag(card->ctx, tag_val, tag_len, (unsigned int) 0x81, &tl);
+			if ((tv == NULL) || (tl != 2)) {
+				fprintf(stderr, "invalid or missing file size\n");
+				break;
+			}
+			len = (tv[0] << 8) + tv[1];
+			tag_val =  sc_asn1_find_tag(card->ctx, tag_val, tag_len, (unsigned int) 0x82, &tag_len);
+			if (tag_val == NULL) {
+				break;
+				fprintf(stderr, "invalid or missing file type\n");
+			}
+			if (tag_val[0] == 0x01) {
+				fprintf(stdout, "Writing %s\n", desc_nameImpExp(SC_FILE_TYPE_WORKING_EF, name));
+				data = read_blobImpExp(fh, NULL, len);
+				if (data == NULL) {
+					fprintf(stderr, "error reading file data\n");
+					break;
+				}
+				if (mkfileImpExp(card, name, fci, fci_len, data, len) != (int)len)
+					break;
+				free(data);
+				if (strcmp(name, "2f02") == 0) {
+					sc_cardctl_sc_hsm_init_param_t param;
+					memset(&param, 0, sizeof(param));
+					r = sc_card_ctl(card, SC_CARDCTL_SC_HSM_INITIALIZE, (void *)&param);
+					if (r < 0) {
+						fprintf(stderr, "sc_card_ctl(*, SC_CARDCTL_SC_HSM_INITIALIZE, *) failed with %s\n", sc_strerror(r));
+					}
+				}
+			} else {
+				fprintf(stderr, "invalid file type\n");
+					break;
+			}
+		}
+	}
+
+	fclose(fh);
+
+	fprintf(stdout, "Done\n");
+
+	return 0;
+}
+
 
 static int export_key(sc_card_t *card, int keyid, const char *outf)
 {
@@ -1891,6 +2373,10 @@ int main(int argc, char *argv[])
 	int do_export_key = 0;
 	int do_register_public_key = 0;
 	int do_public_key_auth_status = 0;
+	int do_generate_dev_aut = 0;
+	int do_import_dev_aut = 0;
+	int do_read = 0;
+	int do_write = 0;
 	sc_path_t path;
 	sc_file_t *file = NULL;
 	const char *opt_so_pin = NULL;
@@ -1913,7 +2399,7 @@ int main(int argc, char *argv[])
 	sc_card_t *card = NULL;
 
 	while (1) {
-		c = getopt_long(argc, argv, "XC:I:P:W:U:K:n:e:g:Ss:i:fr:wv", options, &long_optind);
+		c = getopt_long(argc, argv, "XC:I:P:k:U:K:n:e:g:Ss:i:fr:wvG:D:R:W:", options, &long_optind);
 		if (c == -1)
 			break;
 		if (c == '?')
@@ -1938,7 +2424,7 @@ int main(int argc, char *argv[])
 			opt_filename = optarg;
 			action_count++;
 			break;
-		case 'W':
+		case 'k':
 			do_wrap_key = 1;
 			opt_filename = optarg;
 			action_count++;
@@ -2012,6 +2498,26 @@ int main(int argc, char *argv[])
 			break;
 		case 'w':
 			opt_wait = 1;
+			break;
+		case 'G':
+			do_generate_dev_aut = 1;
+			opt_label = optarg;
+			action_count++;
+			break;
+		case 'D':
+			do_import_dev_aut = 1;
+			opt_filename = optarg;
+			action_count++;
+			break;
+		case 'R':
+			do_read = 1;
+			opt_filename = optarg;
+			action_count++;
+			break;
+		case 'W':
+			do_write = 1;
+			opt_filename = optarg;
+			action_count++;
 			break;
 		}
 	}
@@ -2130,6 +2636,18 @@ int main(int argc, char *argv[])
 		goto fail;
 
 	if (do_public_key_auth_status && public_key_auth_status(ctx, card))
+		goto fail;
+
+	if (do_generate_dev_aut && generate_dev_aut(card, opt_label))
+		goto fail;
+
+	if (do_import_dev_aut && import_dev_aut(card, opt_filename))
+		goto fail;
+
+	if (do_read && read_cfg(card, opt_filename))
+		goto fail;
+
+	if (do_write && write_cfg(card, opt_filename))
 		goto fail;
 
 	if (action_count == 0) {

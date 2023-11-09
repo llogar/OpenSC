@@ -666,6 +666,13 @@ int sc_get_encoding_flags(sc_context_t *ctx,
 		*sflags |= iflags & SC_ALGORITHM_MGF1_HASHES;
 		*pflags = iflags & ~(iflags & (SC_ALGORITHM_MGF1_HASHES | SC_ALGORITHM_RSA_PAD_PSS));
 
+	} else if ((caps & (SC_ALGORITHM_RSA_PAD_PKCS1 | SC_ALGORITHM_RSA_HASH_NONE)) &&
+			(iflags & SC_ALGORITHM_RSA_PAD_PKCS1)) {
+		/* A corner case - the card can partially do PKCS1, if we prepend the
+		 * DigestInfo bit it will do the rest. IsoApplet can do this, so make it a priority */
+		*sflags = SC_ALGORITHM_RSA_PAD_PKCS1 | SC_ALGORITHM_RSA_HASH_NONE;
+		*pflags = (iflags & SC_ALGORITHM_RSA_HASHES) | SC_ALGORITHM_RSA_PAD_NONE;
+
 	} else if ((caps & SC_ALGORITHM_RSA_RAW) &&
 				(iflags & SC_ALGORITHM_RSA_PAD_PKCS1
 				|| iflags & SC_ALGORITHM_RSA_PAD_PSS
@@ -676,13 +683,6 @@ int sc_get_encoding_flags(sc_context_t *ctx,
 		/* Use the card's raw RSA capability on the padded input */
 		*sflags = SC_ALGORITHM_RSA_PAD_NONE;
 		*pflags = iflags;
-
-	} else if ((caps & (SC_ALGORITHM_RSA_PAD_PKCS1 | SC_ALGORITHM_RSA_HASH_NONE)) &&
-			(iflags & SC_ALGORITHM_RSA_PAD_PKCS1)) {
-		/* A corner case - the card can partially do PKCS1, if we prepend the
-		 * DigestInfo bit it will do the rest. */
-		*sflags = SC_ALGORITHM_RSA_PAD_PKCS1 | SC_ALGORITHM_RSA_HASH_NONE;
-		*pflags = (iflags & SC_ALGORITHM_RSA_HASHES) | SC_ALGORITHM_RSA_PAD_NONE;
 
 	} else if ((iflags & SC_ALGORITHM_AES) == SC_ALGORITHM_AES) { /* TODO: seems like this constant does not belong to the same set of flags used form asymmetric algos. Fix this! */
 		*sflags = 0;

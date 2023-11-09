@@ -32,6 +32,7 @@
 #define ISOAPPLET_ALG_REF_ECDSA_SHA1 0x21
 #define ISOAPPLET_ALG_REF_ECDSA_PRECOMPUTED_HASH 0x22
 #define ISOAPPLET_ALG_REF_ECDH 0x23
+#define ISOAPPLET_ALG_REF_RSA_PAD_NONE 0x10
 #define ISOAPPLET_ALG_REF_RSA_PAD_PKCS1 0x11
 #define ISOAPPLET_ALG_REF_RSA_PAD_PSS 0x12
 
@@ -313,6 +314,9 @@ isoApplet_init(sc_card_t *card)
 	flags = 0;
 	flags |= SC_ALGORITHM_RSA_PAD_PKCS1;
 	flags |= SC_ALGORITHM_RSA_HASH_NONE;
+	if(drvdata->isoapplet_features & ISOAPPLET_API_FEATURE_RSA_PAD_NONE) {
+		flags |= SC_ALGORITHM_RSA_PAD_NONE;
+	}
 	if(drvdata->isoapplet_features & ISOAPPLET_API_FEATURE_V1_RSA_PSS) {
 		flags |= SC_ALGORITHM_RSA_PAD_PSS;
 	}
@@ -1365,7 +1369,11 @@ isoApplet_set_security_env(sc_card_t *card,
 		{
 
 		case SC_ALGORITHM_RSA:
-			if( env->algorithm_flags & SC_ALGORITHM_RSA_PAD_PKCS1 )
+			if( env->algorithm_flags & SC_ALGORITHM_RSA_PAD_NONE )
+			{
+				drvdata->sec_env_alg_ref = ISOAPPLET_ALG_REF_RSA_PAD_NONE;
+			}
+			else if( env->algorithm_flags & SC_ALGORITHM_RSA_PAD_PKCS1 )
 			{
 				drvdata->sec_env_alg_ref = ISOAPPLET_ALG_REF_RSA_PAD_PKCS1;
 			}

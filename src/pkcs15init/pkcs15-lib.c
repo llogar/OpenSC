@@ -1253,6 +1253,8 @@ sc_pkcs15init_init_prkdf(struct sc_pkcs15_card *p15card, struct sc_profile *prof
 		usage = SC_PKCS15_PRKEY_USAGE_SIGN;
 		if (keyargs->x509_usage)
 			usage = sc_pkcs15init_map_usage(keyargs->x509_usage, 1);
+		if ((key->algorithm == SC_ALGORITHM_RSA) && (usage & SC_PKCS15_PRKEY_USAGE_UNWRAP))
+			usage |= SC_PKCS15_PRKEY_USAGE_DECRYPT;
 	}
 
 	if ((label = keyargs->label) == NULL)
@@ -1923,6 +1925,8 @@ sc_pkcs15init_store_public_key(struct sc_pkcs15_card *p15card, struct sc_profile
 		usage = SC_PKCS15_PRKEY_USAGE_VERIFY;
 		if (keyargs->x509_usage)
 			usage = sc_pkcs15init_map_usage(keyargs->x509_usage, 0);
+		if ((key.algorithm == SC_ALGORITHM_RSA) && (usage & SC_PKCS15_PRKEY_USAGE_WRAP))
+			usage |= SC_PKCS15_PRKEY_USAGE_ENCRYPT;
 	}
 	label = keyargs->label;
 	if (!label)

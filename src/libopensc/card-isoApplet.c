@@ -1537,14 +1537,17 @@ isoApplet_compute_signature(struct sc_card *card,
 static int
 isoApplet_get_challenge(struct sc_card *card, u8 *rnd, size_t len)
 {
-	int r;
+	int r = 0;
 
 	LOG_FUNC_CALLED(card->ctx);
 
-	if(card->caps & SC_CARD_CAP_RNG) {
-		r = iso_ops->get_challenge(card, rnd, len);
-	} else   {
-		r = SC_ERROR_NOT_SUPPORTED;
+	for (size_t pos = 0; pos < len; pos += r) {
+		if(card->caps & SC_CARD_CAP_RNG) {
+			r = iso_ops->get_challenge(card, &rnd[pos], len - pos > 250 ? 250 : len - pos);
+		} else   {
+			r = SC_ERROR_NOT_SUPPORTED;
+		}
+		SC_TEST_RET(card->ctx, SC_LOG_DEBUG_NORMAL, r, "get_challenge failed");
 	}
 
 	LOG_FUNC_RETURN(card->ctx, r);

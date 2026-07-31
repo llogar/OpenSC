@@ -1772,6 +1772,8 @@ static int sc_hsm_card_ctl(sc_card_t *card, unsigned long cmd, void *ptr)
 			return SC_ERROR_INVALID_ARGUMENTS;
 		*(char**)ptr = sc_hsm_model;
 		return SC_SUCCESS;
+	case SC_CARDCTL_ISOAPPLET_IMPORT_KEY:
+		return sc_get_isoApplet_driver()->ops->card_ctl(card, cmd, ptr);
 	}
 	return SC_ERROR_NOT_SUPPORTED;
 }

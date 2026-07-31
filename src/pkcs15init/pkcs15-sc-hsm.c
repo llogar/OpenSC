@@ -119,15 +119,6 @@ static int sc_hsm_create_key(sc_profile_t *profile, sc_pkcs15_card_t *p15card,
 
 
 
-static int sc_hsm_store_key(sc_profile_t *profile, sc_pkcs15_card_t *p15card,
-	sc_pkcs15_object_t *obj, sc_pkcs15_prkey_t *key)
-{
-	LOG_FUNC_CALLED(p15card->card->ctx);
-	LOG_FUNC_RETURN(p15card->card->ctx, SC_ERROR_NOT_SUPPORTED);
-}
-
-
-
 static int sc_hsm_determine_free_id(struct sc_pkcs15_card *p15card, u8 range)
 {
 	struct sc_card *card = p15card->card;
@@ -150,6 +141,23 @@ static int sc_hsm_determine_free_id(struct sc_pkcs15_card *p15card, u8 range)
 		}
 	}
 	LOG_FUNC_RETURN(p15card->card->ctx, SC_ERROR_NOT_ENOUGH_MEMORY);
+}
+
+
+
+static int sc_hsm_store_key(sc_profile_t *profile, sc_pkcs15_card_t *p15card,
+	sc_pkcs15_object_t *object, sc_pkcs15_prkey_t *key)
+{
+	struct sc_card *card = p15card->card;
+	struct sc_pkcs15_prkey_info *key_info = (struct sc_pkcs15_prkey_info *)object->data;
+	int r;
+	LOG_FUNC_CALLED(card->ctx);
+	r = sc_pkcs15init_verify_secret(profile, p15card, NULL, SC_AC_CHV, 0x81);
+	LOG_TEST_RET(card->ctx, r, "Authentication failed");
+	key_info->key_reference = sc_hsm_determine_free_id(p15card, KEY_PREFIX);
+	LOG_TEST_RET(card->ctx, key_info->key_reference, "Could not determine key reference");
+	r = sc_pkcs15init_get_isoApplet_ops()->store_key(profile, p15card, object, key);
+	LOG_FUNC_RETURN(card->ctx, r);
 }
 
 

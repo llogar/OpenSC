@@ -22,6 +22,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 #ifdef HAVE_SYS_TIME_H
 #include <sys/time.h>
 #endif
@@ -36,6 +37,7 @@
 
 #include "sc-pkcs11.h"
 #include "ui/notify.h"
+#include "common/compat_strndup.h"
 
 #ifdef ENABLE_OPENSSL
 #include <openssl/crypto.h>

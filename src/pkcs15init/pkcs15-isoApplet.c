@@ -34,6 +34,8 @@
 #include "pkcs15-init.h"
 #include "profile.h"
 
+#include "../libopensc/card-isoApplet.h"
+
 #define ISOAPPLET_KEY_ID_MIN 0
 #define ISOAPPLET_KEY_ID_MAX 15
 
@@ -400,6 +402,7 @@ isoApplet_generate_key_rsa(sc_pkcs15_prkey_info_t *key_info, sc_card_t *card,
 	int rv;
 	size_t keybits;
 	struct sc_cardctl_isoApplet_genkey args;
+	struct isoApplet_drv_data *drvdata = DRVDATA(card);
 
 	LOG_FUNC_CALLED(card->ctx);
 
@@ -407,18 +410,33 @@ isoApplet_generate_key_rsa(sc_pkcs15_prkey_info_t *key_info, sc_card_t *card,
 
 	/* Check key size: */
 	keybits = key_info->modulus_length;
-	if (keybits != 2048 && keybits != 4096)
+	if (drvdata->isoapplet_version >= ISOAPPLET_VERSION_C7 && drvdata->isoapplet_version < ISOAPPLET_VERSION_V1)
 	{
-		rv = SC_ERROR_INVALID_ARGUMENTS;
-		sc_log(card->ctx, "%s: RSA private key length is unsupported, correct length is 2048 or 4096", sc_strerror(rv));
-		goto err;
+		if (keybits < 1024 && keybits > 4096)
+		{
+			rv = SC_ERROR_INVALID_ARGUMENTS;
+			sc_log(card->ctx, "%s: RSA private key length is unsupported, correct length is 1024..4096", sc_strerror(rv));
+			goto err;
+		}
+	}
+	else
+	{
+		if (keybits != 2048 && keybits != 4096)
+		{
+			rv = SC_ERROR_INVALID_ARGUMENTS;
+			sc_log(card->ctx, "%s: RSA private key length is unsupported, correct length is 2048 or 4096", sc_strerror(rv));
+			goto err;
+		}
 	}
 
 	/* Generate the key.
-	 * Note: key size is not explicitly passed to the card.
-	 * Its derived from the algorithm reference. */
-	args.algorithm_ref = keybits == 2048 ? SC_ISOAPPLET_ALG_REF_RSA_GEN_2048 : SC_ISOAPPLET_ALG_REF_RSA_GEN_4096;
+	 * Note: key size is passed as tag 0x91
+	 */
+	args.algorithm_ref = keybits == 2048 ? SC_ISOAPPLET_ALG_REF_RSA_GEN : SC_ISOAPPLET_ALG_REF_RSA_GEN_4096;
+	if (drvdata->isoapplet_version >= ISOAPPLET_VERSION_C7 && drvdata->isoapplet_version < ISOAPPLET_VERSION_V1)
+		args.algorithm_ref = SC_ISOAPPLET_ALG_REF_RSA_GEN;
 	args.priv_key_ref = key_info->key_reference;
+	args.key_len = keybits;
 
 	args.pubkey.rsa.modulus.len = keybits / 8;
 	args.pubkey.rsa.modulus.value = malloc(args.pubkey.rsa.modulus.len);
@@ -785,7 +803,7 @@ isoApplet_store_key(sc_profile_t *profile, sc_pkcs15_card_t *p15card, sc_pkcs15_
 	switch(object->type)
 	{
 	case SC_PKCS15_TYPE_PRKEY_RSA:
-		args.algorithm_ref = SC_ISOAPPLET_ALG_REF_RSA_GEN_2048;
+		args.algorithm_ref = SC_ISOAPPLET_ALG_REF_RSA_GEN;
 		if(!key->u.rsa.p.data
 		        ||!key->u.rsa.q.data
 		        ||!key->u.rsa.iqmp.data
@@ -794,6 +812,7 @@ isoApplet_store_key(sc_profile_t *profile, sc_pkcs15_card_t *p15card, sc_pkcs15_
 		{
 			LOG_TEST_RET(card->ctx, SC_ERROR_INVALID_ARGUMENTS, "Only CRT RSA keys may be imported.");
 		}
+		args.key_len                = key->u.rsa.modulus.len*8;
 		args.privkey.rsa.p.value    = key->u.rsa.p.data;
 		args.privkey.rsa.p.len      = key->u.rsa.p.len;
 		args.privkey.rsa.q.value    = key->u.rsa.q.data;

@@ -976,7 +976,7 @@ typedef struct sc_cardctl_sc_hsm_pka_register {
  * isoApplet
  */
 
-#define SC_ISOAPPLET_ALG_REF_RSA_GEN_2048 0xF3
+#define SC_ISOAPPLET_ALG_REF_RSA_GEN 0xF3
 #define SC_ISOAPPLET_ALG_REF_RSA_GEN_4096 0xF5
 #define SC_ISOAPPLET_ALG_REF_EC_GEN 0xEC
 
@@ -992,6 +992,7 @@ typedef struct sc_cardctl_isoApplet_ec_parameters {
 typedef struct sc_cardctl_isoApplet_genkey {
 	u8 algorithm_ref;			/* Algorithm reference sent to card */
 	unsigned int priv_key_ref;	/* Private key reference sent to card */
+	size_t key_len;
 	union {
 		struct
 		{
@@ -1009,6 +1010,7 @@ typedef struct sc_cardctl_isoApplet_genkey {
 typedef struct sc_cardctl_isoApplet_import_key {
 	u8 algorithm_ref;			/* Algorithm reference sent to card */
 	unsigned int priv_key_ref;	/* Private key reference sent to card */
+	size_t key_len;
 	union {
 		struct
 		{

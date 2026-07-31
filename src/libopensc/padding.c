@@ -741,7 +741,7 @@ int sc_get_encoding_flags(sc_context_t *ctx,
 		/* A corner case - the card can partially do PKCS1, if we prepend the
 		 * DigestInfo bit it will do the rest. */
 		*sflags = SC_ALGORITHM_RSA_PAD_PKCS1_TYPE_01 | SC_ALGORITHM_RSA_HASH_NONE;
-		*pflags = iflags & SC_ALGORITHM_RSA_HASHES;
+		*pflags = (iflags & SC_ALGORITHM_RSA_HASHES) | SC_ALGORITHM_RSA_PAD_NONE;
 
 	} else if ((caps & (SC_ALGORITHM_RSA_PAD_PKCS1_TYPE_02 | SC_ALGORITHM_RSA_HASH_NONE)) &&
 			(iflags & SC_ALGORITHM_RSA_PAD_PKCS1_TYPE_02)) {

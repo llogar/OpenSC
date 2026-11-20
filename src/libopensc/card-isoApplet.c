@@ -1253,7 +1253,16 @@ static int isoApplet_card_reader_lock_obtained(sc_card_t *card, int was_reset)
 
 static int isoApplet_logout(sc_card_t *card)
 {
-	return iso7816_select_aid(card, isoApplet_aid, sizeof(isoApplet_aid), NULL, NULL);
+	int r;
+	struct isoApplet_drv_data *drvdata = (struct isoApplet_drv_data *)card->drv_data;
+
+	LOG_FUNC_CALLED(card->ctx);
+	if (drvdata->isoapplet_version < 0x0007)
+		return iso7816_select_aid(card, isoApplet_aid, sizeof(isoApplet_aid), NULL, NULL);
+
+	r = iso7816_logout(card, 0x00);
+	SC_TEST_RET(card->ctx, SC_LOG_DEBUG_NORMAL, r,  "logout failed");
+	LOG_FUNC_RETURN(card->ctx, r);
 }
 
 static int

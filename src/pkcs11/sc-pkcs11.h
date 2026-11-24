@@ -530,6 +530,9 @@ CK_RV sc_pkcs11_encrypt_data(const CK_BYTE_PTR pubkey, CK_ULONG pubkey_len,
 		CK_BYTE_PTR out, CK_ULONG_PTR out_len);
 #endif
 
+/* Parse user_pin_unblock_style config option */
+unsigned int parse_unblock_style(scconf_block *conf_block, unsigned int default_value);
+
 /* Load configuration defaults */
 void load_pkcs11_parameters(struct sc_pkcs11_config *, struct sc_context *);
 

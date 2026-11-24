@@ -447,6 +447,10 @@ eoi_card_ctl(sc_card_t *card, unsigned long cmd, void *ptr)
 			r = SC_SUCCESS;
 		}
 		break;
+	case SC_CARDCTL_TOKENINFO_FLAGS:
+		*(int*)ptr = SC_CARDCTRL_TOKENINFO_FLAGS_HONOR_LOGIN_REQUIRED;
+		r = SC_SUCCESS;
+		break;
 	default:
 		iso_driver = sc_get_iso7816_driver();
 		if (iso_driver->ops->card_ctl != NULL) {
